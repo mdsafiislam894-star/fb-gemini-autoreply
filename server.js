@@ -48,7 +48,7 @@ const PERSONAL_CUES = [
   'phone dibo', 'kalke asb', 'kalke jaba', 'basay ach', 'ki diye kheye', 'khaichis', 'khaicis', 'khaiso'
 ];
 function hasEmoji(text) {
-  return /\\p{Extended_Pictographic}/u.test(String(text || ''));
+  return /\p{Extended_Pictographic}/u.test(String(text || ''));
 }
 
 function withEmoji(text, fallback = '🙂') {
