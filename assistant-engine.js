@@ -74,4 +74,4 @@ function isProactiveScheduleValid(schedule, conversation, profile, now = Date.no
   if (Number(conversation && conversation.lastUserAt || 0) !== Number(schedule.inboundAt)) return false;
   return now >= Number(schedule.scheduledAt) && now < Number(schedule.expiresAt);
 }
-module.exports = { classifyRelayIntent, buildRelayAcknowledgement, canSendWifeProactive, makeProactiveSchedule, isProactiveScheduleValid, __test: { parseDueDate, parseClockTime, localDhakaToUtc } };
+module.exports = { classifyRelayIntent, buildRelayAcknowledgement, canSendWifeProactive, makeProactiveSchedule, isProactiveScheduleValid, isTaskReminderDue, __test: { parseDueDate, parseClockTime, localDhakaToUtc } };
