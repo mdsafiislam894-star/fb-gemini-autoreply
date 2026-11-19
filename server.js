@@ -105,7 +105,7 @@ function offlinePersonalReply(text, conv, task) {
   const profile = getContactProfile(conv.psid);
   const isBanglish = conv.prefs.script === 'Banglish (Romanized Bengali)';
   const isEnglish = conv.prefs.script === 'English';
-  const isWife = profile.relationship === 'wife' || profile.affectionate;
+  const isWife = profile.relationship === 'wife' && profile.affectionate === true;
   if (isWife) {
     if (/(ki koris|কি কর)/i.test(q)) return isBanglish ? 'Ei to, Safi Sir-er kajgulo dekhashona korchi Sona 🙂 Tumi ki korcho? 💙' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি সোনা 🙂 তুমি কী করছো? 💙';
     if (/(kha|খে|খাই)/i.test(q)) return isBanglish ? 'Eta Safi Sir-er kach theke confirm kore bolte hobe Bou 😊 Tumi kheyecho to? 💗' : 'এটা সাফি স্যারের কাছ থেকেই নিশ্চিত করে বলতে হবে বউ 😊 তুমি খেয়েছো তো? 💗';
@@ -590,7 +590,7 @@ if (BOT_TOKEN) {
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
-    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.8 Control Center*\n• Owner Presence: ${state.ownerPresence === 'online' ? '🟢 ONLINE' : '🌙 OFFLINE'}\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
+    tgBot.sendMessage(cid, `🤖 *ZEVIAN v5.0 Control Center*\n• Owner Presence: ${state.ownerPresence === 'online' ? '🟢 ONLINE' : '🌙 OFFLINE'}\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -710,7 +710,7 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/inbox/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.conversations).slice(-8); tgBot.sendMessage(m.chat.id, l.length ? l.map(c => `👤 *${c.senderName}* (\`${c.psid}\`)\n🗣️ ${c.prefs.script} | ${c.prefs.pronoun}\n└ ${c.messages[c.messages.length - 1]?.text || ''}`).join('\n\n') : '💬 কোনো চ্যাট নেই।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/history (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const c = state.conversations[match[1].trim()]; tgBot.sendMessage(m.chat.id, c ? `💬 *${c.senderName} History:*\n` + c.messages.slice(-12).map(x => `[${x.time}] *${x.role}:* ${x.text}`).join('\n') : '⚠️ এই PSID-র কোনো হিস্ট্রি পাওয়া যায়নি।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 Clear Conversation Memory', callback_data: 'clear_mem' }]] } }); });
-  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v4.7 OK (Banglish Mirror)!*\nModel: \`${lastGeminiModel || 'auto'}\`\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
+  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v5.0 OK (Banglish Mirror)!*\nModel: \`${lastGeminiModel || 'auto'}\`\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
