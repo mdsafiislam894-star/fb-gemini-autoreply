@@ -616,7 +616,7 @@ if (BOT_TOKEN) {
     tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
     sendMenu(m.chat.id);
   });
-  tgBot.onText(/\\/snooze\\s+(TK-\\d+)\\s+(1h|3h|6h|1d|2d)/i, (m, match) => {
+  tgBot.onText(/\/snooze\s+(TK-\d+)\s+(1h|3h|6h|1d|2d)/i, (m, match) => {
     if (!isOwner(m.chat.id)) return;
     const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase() && t.status === 'OPEN');
     if (!task) return tgBot.sendMessage(m.chat.id, 'Open Task পাওয়া যায়নি।');
@@ -624,7 +624,7 @@ if (BOT_TOKEN) {
     task.snoozedUntil = Date.now() + duration;
     tgBot.sendMessage(m.chat.id, '⏰ ' + task.id + ' Snooze করা হয়েছে: ' + match[2]);
   });
-  tgBot.onText(/\\/delete_task\\s+(TK-\\d+)/i, (m, match) => {
+  tgBot.onText(/\/delete_task\s+(TK-\d+)/i, (m, match) => {
     if (!isOwner(m.chat.id)) return;
     const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase());
     if (!task) return tgBot.sendMessage(m.chat.id, 'Task ID পাওয়া যায়নি।');
