@@ -2,10 +2,15 @@
   "name": "fb-gemini-autoreply",
   "version": "2.5.0",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18.0.0" },
+  "scripts": {
+    "prestart": "node --check server.js",
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
-    "@google/genai": "latest",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
