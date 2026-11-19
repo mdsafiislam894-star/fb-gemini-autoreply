@@ -195,7 +195,7 @@ function fallbackUserReply(script, ownerNotified) {
 
 function isPersonalQuestion(text) {
   const t = String(text || '').toLowerCase();
-  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kothay chili|koi chili|koi chilis|koi achis|koi achos|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis|khaicis)\b/i.test(t);
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|kothay acho|kothay aso|kothay chili|koi chili|koi chilis|koi achis|koi achos|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis|khaicis)\b/i.test(t);
 }
 function statusMayAnswerQuestion(text) {
   const q = String(text || '').toLowerCase();
@@ -500,6 +500,11 @@ app.post('/webhook', async (req, res) => {
         const text = ev.message?.text;
         if (!text) continue;
         pushMsg(psid, 'User', text);
+        const activityIntent = assistantEngine.classifyActivityQuestion(text);
+        if (activityIntent.kind === 'assistant_activity') {
+          await sendPageReply(psid, assistantEngine.buildAssistantActivityReply(activityIntent.script), 'ZEVIAN');
+          continue;
+        }
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
         const relayIntent = assistantEngine.classifyRelayIntent(text);
         const ownerTask = (relayIntent.isRelay || isTaskIntent(text)) ? addOwnerTask(psid, name, text) : null;
@@ -732,7 +737,7 @@ if (BOT_TOKEN) {
     const r = await analyzeMessage('test_bn', 'ki obostha?');
     if (!r) return tgBot.sendMessage(m.chat.id, `❌ Gemini test failed: ${lastGeminiError || 'No response'}`);
     const reply = (r.reply_parts || []).join(' | ') || r.suggested_reply || (r.requires_owner ? 'OWNER_REVIEW' : 'NO_REPLY');
-    tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\\nModel: ${lastGeminiModel || 'unknown'}\\nInput: ki obostha?\\nClass: ${r.classification}\\nPolicy: ${r.reply_policy}\\nReply: ${reply}`);
+    tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\nModel: ${lastGeminiModel || 'unknown'}\nInput: ki obostha?\nClass: ${r.classification}\nPolicy: ${r.reply_policy}\nReply: ${reply}`);
   });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
