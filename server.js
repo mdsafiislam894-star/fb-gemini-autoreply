@@ -299,7 +299,7 @@ Instructions:
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
 5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."]}`;
+Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural second message would add value; otherwise empty string.`;
 
   // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
