@@ -57,7 +57,7 @@ function getContactProfile(psid) {
 
 function isTaskIntent(text) {
   const t = String(text || '').toLowerCase();
-  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|বলবে|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
 }
 
 function addOwnerTask(psid, senderName, message) {
