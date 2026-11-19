@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: fb-gemini-autoreply
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: PERSONAL_BOT_ENABLED
+        value: "true"
+      - key: FB_APPSTATE_JSON
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_CHAT_ID
+        sync: false
