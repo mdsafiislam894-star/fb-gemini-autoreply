@@ -47,6 +47,46 @@ const PERSONAL_CUES = [
   'বাসায় আছ', 'বাসায় আছ', 'কখন আসব', 'চিনতে পারছ', 'তুমি কি রাজি', 'kothay ach',
   'phone dibo', 'kalke asb', 'kalke jaba', 'basay ach', 'ki diye kheye', 'khaichis', 'khaicis', 'khaiso'
 ];
+function hasEmoji(text) {
+  return /\\p{Extended_Pictographic}/u.test(String(text || ''));
+}
+
+function withEmoji(text, fallback = '🙂') {
+  const clean = String(text || '').trim();
+  return clean ? (hasEmoji(clean) ? clean : clean + ' ' + fallback) : fallback;
+}
+
+function fallbackSuggestions(script) {
+  if (script === 'Banglish (Romanized Bengali)') return ['Hmm, ektu pore janacchi 🙂', 'Ekhon sure na, pore bolbo 🙏', 'Dekhe tomake janacchi 😊'];
+  if (script === 'English') return ['I will let you know shortly 🙂', 'I am not sure yet; I will confirm later 🙏', 'Let me check and get back to you 😊'];
+  if (script === 'Mixed (Bangla+English)') return ['আচ্ছা, ektu পরে জানাচ্ছি 🙂', 'এখন sure না, পরে confirm করব 🙏', 'দেখে তোমাকে জানাচ্ছি 😊'];
+  return ['আচ্ছা, একটু পরে জানাচ্ছি 🙂', 'এখন নিশ্চিত নই, পরে জানাবো 🙏', 'বিষয়টা দেখে তোমাকে জানাচ্ছি 😊'];
+}
+
+function fallbackUserReply(script, ownerNotified) {
+  if (script === 'Banglish (Romanized Bengali)') return ownerNotified ? 'Ektu technical problem hocche. Tomar message-ta owner-er kache pathano hoyeche, tini dekhe janaben 🙂' : 'Ektu technical problem hocche. Doya kore kichukhon por abar message dio 🙂';
+  if (script === 'English') return ownerNotified ? 'I am having a brief technical issue. I have sent your message to the page owner, who can follow up 🙂' : 'I am having a brief technical issue. Please try again in a little while 🙂';
+  return ownerNotified ? 'সাময়িকভাবে AI উত্তর দিতে সমস্যায় পড়েছে। তোমার মেসেজটি Owner-এর কাছে পাঠানো হয়েছে, তিনি দেখে জানাবেন 🙂' : 'সাময়িকভাবে উত্তর দিতে সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার মেসেজ দিও 🙂';
+}
+
+function isPersonalQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\\b(where are you|what are you doing|are you coming|will you come|have you eaten|can i call you|when are you free|ki koris|ki koros|ki korteso|kothay acho|kothay aso|kalke jaba|kalke asba|college jaba|khaiso|khaichis)\\b/i.test(t);
+}
+
+function statusMayAnswerQuestion(text) {
+  const q = String(text || '').toLowerCase();
+  return getActiveStatuses().some(item => {
+    const st = String(item.text || '').toLowerCase();
+    const locationQuestion = /(কোথায়|কোথায়|where|kothay)/i.test(q);
+    const activityQuestion = /(কি কর|কি করছ|what are you doing|ki koris|ki koros)/i.test(q);
+    const availabilityQuestion = /(আসবে|আসব|আছ|available|free|ব্যস্ত|busy|asba|ashba)/i.test(q);
+    const statusHasLocation = /(বাইরে|বাসায়|বাসায়|কলেজ|কাজে|outside|college|office|basay|baire)/i.test(st);
+    const statusHasAvailability = /(ব্যস্ত|কাজে|ক্লাস|busy|meeting|class|পরে|দেরি|ফিরে|আসছি|pore|deri)/i.test(st);
+    return (locationQuestion && statusHasLocation) || (activityQuestion && (statusHasLocation || statusHasAvailability)) || (availabilityQuestion && statusHasAvailability);
+  });
+}
+
 const STATUS_CUES = [
   'বাইরে যাচ্ছি', 'ব্যস্ত আছি', 'ব্যস্ত থাকব', 'কলেজে যাচ্ছি', 'খেয়ে নিয়েছি', 'খেয়ে নিয়েছি',
   'অনলাইনে থাকব না', 'পাওয়া যাবে না', 'পাওয়া যাবে না', 'ঘুমাচ্ছি', 'বাসায় আছি', 'বাসায় আছি'
