@@ -149,7 +149,9 @@ async function processDueTaskReminders(now = Date.now()) {
 async function processWifeProactiveMessages(now = Date.now()) {
   for (const [psid, profile] of Object.entries(state.contactProfiles)) {
     const schedule = profile && profile.pendingProactive;
-    if (!schedule || schedule.status !== 'PENDING') continue;
+    if (!schedule || !['PENDING', 'SENDING'].includes(schedule.status)) continue;
+    if (schedule.status === 'SENDING' && now - Number(schedule.attemptAt || 0) < 5 * 60 * 1000) continue;
+    if (schedule.status === 'SENDING') schedule.status = 'PENDING';
     const conv = state.conversations[psid];
     if (!assistantEngine.isProactiveScheduleValid(schedule, conv, profile, now)) {
       if (now >= Number(schedule.expiresAt || 0) || Number(conv && conv.lastUserAt || 0) !== Number(schedule.inboundAt) || profile.relationship !== 'wife' || profile.affectionate !== true) schedule.status = 'CANCELLED';
