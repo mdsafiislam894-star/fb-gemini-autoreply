@@ -22,3 +22,9 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_CHAT_ID
         sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: STATE_ENCRYPTION_KEY
+        sync: false
+      - key: DATABASE_SSL
+        value: 'false'
