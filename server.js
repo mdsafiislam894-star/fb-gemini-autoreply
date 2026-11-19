@@ -6,6 +6,7 @@ const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const persistence = require('./persistence');
 const assistantEngine = require('./assistant-engine');
+const replyPlanEngine = require('./reply-plan');
 
 const app = express();
 app.use(cors());
@@ -354,7 +355,7 @@ Instructions:
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
 5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural second message would add value; otherwise empty string.`;
+Conversation Bubble Rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return 1–3 separate short messages in reply_parts; each array item becomes its own Messenger bubble. A natural pattern may be a short acknowledgement followed by a relevant reciprocal question, e.g. for "ki koris?" -> ["Aito bose aci 🙂", "Tui ki koris?"]; use only when contextually appropriate, never as a fixed template. Do NOT force a question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. Never exceed 3 bubbles. Every bubble must match sender script, pronoun, spelling, tone, and include a suitable emoji. Multi-bubble replies are allowed for everyone; delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Aito bose aci 🙂","Tui ki koris?"],"suggested_reply":"Aito bose aci 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
   // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
@@ -381,6 +382,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
         const safeClass = allowed.includes(classification) ? classification : 'UNCERTAIN';
         const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
         const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
+        const replyPlan = replyPlanEngine.normalizeReplyPlan(parsed);
         lastGeminiError = null;
         lastGeminiModel = m;
         return {
@@ -388,7 +390,9 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
           confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
           requires_owner: requiresOwner,
           reason: String(parsed.reason || 'Owner review required').slice(0, 250),
-          suggested_reply: requiresOwner ? '' : (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : ''),
+          reply_policy: requiresOwner ? 'NO_REPLY' : replyPlan.policy,
+          reply_parts: requiresOwner ? [] : replyPlan.parts.map(part => withEmoji(part, '🙂')),
+          suggested_reply: requiresOwner ? '' : (replyPlan.parts[0] || (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : '')),
           owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script),
           follow_up: !requiresOwner && typeof parsed.follow_up === 'string' ? parsed.follow_up.trim().slice(0, 400) : ''
         };
@@ -438,6 +442,19 @@ async function sendPageReply(psid, text, role = 'ZEVIAN') {
     return true;
   }
   return false;
+}
+
+async function sendPageReplySequence(psid, parts, role = 'ZEVIAN') {
+  const clean = Array.isArray(parts) ? parts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 3) : [];
+  if (!clean.length) return { sent: 0, complete: true };
+  let sent = 0;
+  for (const part of clean) {
+    if (sent > 0) await new Promise(resolve => setTimeout(resolve, 1100));
+    const ok = await sendPageReply(psid, part, role);
+    if (!ok) return { sent, complete: false };
+    sent += 1;
+  }
+  return { sent, complete: true };
 }
 
 app.get('/webhook', (req, res) => {
@@ -518,11 +535,12 @@ app.post('/webhook', async (req, res) => {
         }
         const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
         if (cls === 'SPAM') continue;
-        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold && ai.suggested_reply) {
-          const replyText = withEmoji(ai.suggested_reply, '🙂');
-          const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
-          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
-          if (sent && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
+        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold) {
+          if (ai.reply_policy === 'NO_REPLY' || !Array.isArray(ai.reply_parts) || ai.reply_parts.length === 0) continue;
+          const replyParts = ai.reply_parts.slice(0, 3);
+          const delivery = await sendPageReplySequence(psid, replyParts, 'ZEVIAN');
+          if (delivery.complete && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyParts.join(' | ')}`).catch(() => {});
+          if (delivery.complete && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
         } else {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
