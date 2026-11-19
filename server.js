@@ -498,6 +498,13 @@ if (BOT_TOKEN) {
   tgBot.setMyCommands([
     { command: 'start', description: 'ZEVIAN কন্ট্রোল প্যানেল খুলুন' },
     { command: 'status', description: 'সিস্টেম ও বটের বর্তমান অবস্থা দেখুন' },
+    { command: 'online', description: 'Owner online presence চালু করুন' },
+    { command: 'offline', description: 'Owner offline presence চালু করুন' },
+    { command: 'tasks', description: 'Owner reminder ও task দেখুন' },
+    { command: 'done', description: 'একটি task সম্পন্ন করুন' },
+    { command: 'tag', description: 'কন্টাক্টের সম্পর্ক ও tone tag করুন' },
+    { command: 'untag', description: 'কন্টাক্টের custom tag সরান' },
+    { command: 'tags', description: 'Tagged contacts দেখুন' },
     { command: 'help', description: 'কোন কমান্ড দিয়ে কী কাজ হয় তা দেখুন' },
     { command: 'pending', description: 'অপেক্ষমাণ (Pending) প্রশ্নগুলো দেখুন' },
     { command: 'inbox', description: 'সাম্প্রতিক চ্যাট ও ইউজার স্টাইল দেখুন' },
@@ -525,6 +532,7 @@ if (BOT_TOKEN) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
+          [{ text: state.ownerPresence === 'online' ? '🌙 Set Offline' : '🟢 Set Online', callback_data: 'presence_toggle' }, { text: '📌 Tasks', callback_data: 'show_tasks' }],
           [{ text: state.config.masterActive ? '⏸ Pause Bot' : '▶️ Resume Bot', callback_data: 'toggle' }, { text: '📋 Pending List', callback_data: 'list_pending' }],
           [{ text: '📍 My Status', callback_data: 'show_st' }, { text: '📊 Analytics', callback_data: 'show_an' }],
           [{ text: '📖 সব কমান্ড (/help)', callback_data: 'show_help' }, { text: '🧹 Clear Memory', callback_data: 'clear_mem' }]
@@ -538,6 +546,11 @@ if (BOT_TOKEN) {
       `🎛️ *প্যানেল ও স্ট্যাটাস:*\n` +
       `• /start বা /status — মূল কন্ট্রোল প্যানেল ও লাইভ স্ট্যাটাস দেখুন\n` +
       `• /analytics — মোট ইনকামিং, AI রিপ্লাই ও মালিকের রিপ্লাই রিপোর্ট\n` +
+      `• /online — আপনি অনলাইনে; ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠাবে\n` +
+      `• /offline — আপনি অনলাইনে নেই; ZEVIAN নিজে সামলাবে\n` +
+      `• /tasks — Reminders দেখুন; /done TK-201 দিয়ে সম্পন্ন করুন\n` +
+      `• /tag PSID wife — কন্টাক্টকে Wife/Partner হিসেবে ট্যাগ করুন\n` +
+      `• /untag PSID — কাস্টম সম্পর্ক সরান; /tags — ট্যাগ লিস্ট\n` +
       `• /testgemini — Gemini AI ও Banglish Mirror মোড টেস্ট করুন\n\n` +
       `📍 *Live Owner Status (অটো-এক্সপায়ারি):*\n` +
       `• \`/setstatus আমি বাইরে যাচ্ছি\` — নতুন স্ট্যাটাস সেট করুন (অথবা সরাসরি মেসেজ লিখুন)\n` +
