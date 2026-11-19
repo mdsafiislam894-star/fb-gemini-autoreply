@@ -99,7 +99,7 @@ const STATUS_CUES = [
 ];
 
 const processedIds = new Set();
-let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, lastGeminiModel = null, tgBot = null;
+let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, lastGeminiModel = null, lastGeminiTestAt = null, tgBot = null;
 
 function getActiveStatuses() {
   const now = Date.now();
@@ -196,6 +196,7 @@ function pushMsg(psid, role, text) {
 
 async function analyzeMessage(psid, userText) {
   lastGeminiModel = null;
+  lastGeminiTestAt = new Date().toISOString();
   if (!GEMINI_API_KEY) { lastGeminiError = 'Missing GEMINI_API_KEY'; return null; }
   const conv = getConv(psid);
   const history = conv.messages.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
@@ -536,8 +537,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.7.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError && Boolean(lastGeminiModel), geminiModel: lastGeminiModel, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.7 AI Reply Engine (Emoji + Banglish Mirror)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.7.1', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.7 AI Reply Engine (Emoji + Banglish Mirror)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -548,4 +549,4 @@ const missingRequired = [
 if (missingRequired.length) {
   console.error('ZEVIAN security configuration missing:', missingRequired.join(', '));
 }
-app.listen(PORT, () => console.log('ZEVIAN v4.6 security-hardened running on port', PORT));
+app.listen(PORT, () => console.log('ZEVIAN v4.7 AI Reply Engine running on port', PORT));

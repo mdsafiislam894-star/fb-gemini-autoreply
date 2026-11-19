@@ -60,7 +60,7 @@ npm start
 
 A safe `.env.example` template is included. Replace the blank values locally and keep the real `.env` file untracked.
 
-## Security changes in v4.6
+## Security and reliability changes through v4.7
 
 - Removed the insecure fallback webhook verify token.
 - Enforced fail-closed Meta webhook signature verification.
@@ -72,3 +72,8 @@ A safe `.env.example` template is included. Replace the blank values locally and
 - Enforces at least one context-appropriate emoji on user-facing page, owner-approved, fallback, and comment replies.
 - Improves Romanized Bengali detection, pronoun mirroring, and script-aware owner fallback suggestions.
 - Runs `node --check server.js` before the service starts.
+
+
+## Health endpoint diagnostics
+
+The `/health` response reports `geminiStatus` as `not_tested`, `ready`, or `error`. A fresh process starts as `not_tested`; this is not the same as a failed Gemini request. Run `/testgemini` in the authorized Telegram owner chat to test the live API key and model chain.
