@@ -1,11 +1,11 @@
 {
   "name": "fb-gemini-autoreply",
-  "version": "2.6.0",
+  "version": "5.1.0",
   "main": "server.js",
   "scripts": {
-    "prestart": "node --check server.js",
+    "prestart": "node --check server.js && node --check assistant-engine.js && node --check reply-plan.js",
     "start": "node server.js",
-    "test": "node --check server.js && node --check persistence.js && node --test tests/*.test.js"
+    "test": "node --check server.js && node --check assistant-engine.js && node --check reply-plan.js && node --check persistence.js && node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

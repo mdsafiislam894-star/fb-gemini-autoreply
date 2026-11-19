@@ -5,6 +5,8 @@ const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const persistence = require('./persistence');
+const assistantEngine = require('./assistant-engine');
+const replyPlanEngine = require('./reply-plan');
 
 const app = express();
 app.use(cors());
@@ -28,7 +30,7 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For explicitly tagged wife/partner contacts, use affectionate natural language; never pretend to be the Owner. (13) Optionally provide one short follow_up question for a wife/partner contact; leave it empty if repetitive or intrusive.'
+    systemPrompt: `You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For contacts explicitly tagged with /tag PSID wife only, use recent conversation context and mirror their script, spelling, pronouns, short-message rhythm, and natural affectionate style. Avoid repetitive elongated filler, repeated messages, and overuse of pet names. Never impersonate the Owner or invent the Owner's private facts. (13) Only this wife-tagged contact may receive a delayed proactive follow-up; generate one only when it adds natural value, otherwise leave follow_up empty.`
   },
   ownerStatuses: [],
   ownerPresence: 'offline',
@@ -58,6 +60,7 @@ function getContactProfile(psid) {
 }
 
 function isTaskIntent(text) {
+  if (assistantEngine.classifyRelayIntent(text).isRelay) return true;
   const t = String(text || '').toLowerCase();
   return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol|কালকে.{0,20}(কলেজ|স্যার|যাবি|যাবে)|আগামীকাল.{0,20}(কলেজ|স্যার|যাবি|যাবে)|tomorrow.{0,30}(college|sir|teacher)|kalke.{0,30}(college|sir|teacher))/i.test(t);
 }
@@ -80,14 +83,16 @@ function inferTaskPriority(message) {
 }
 
 function addOwnerTask(psid, senderName, message) {
+  const intent = assistantEngine.classifyRelayIntent(message);
   const duplicate = state.ownerTasks.find(t => t.status === 'OPEN' && t.psid === psid && t.sourceMessage === message);
   if (duplicate) return duplicate;
   state.taskCounter += 1;
+  const dueAt = intent.isRelay ? intent.dueAt : inferTaskDueAt(message);
   const task = {
     id: 'TK-' + state.taskCounter,
     psid, senderName, sourceMessage: String(message).slice(0, 1000),
     title: String(message).slice(0, 180),
-    status: 'OPEN', priority: inferTaskPriority(message), dueAt: inferTaskDueAt(message), createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
+    status: 'OPEN', priority: intent.isRelay ? intent.priority : inferTaskPriority(message), dueAt, dueDate: intent.dueDate || null, dueTimeSource: intent.dueTimeSource || null, timeSpecified: Boolean(intent.timeSpecified), reminderDelivery: dueAt ? { status: 'PENDING', attempts: 0, nextAttemptAt: dueAt, sentAt: null } : null, createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
   };
   state.ownerTasks.unshift(task);
   if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
@@ -102,7 +107,7 @@ function offlinePersonalReply(text, conv, task) {
   const profile = getContactProfile(conv.psid);
   const isBanglish = conv.prefs.script === 'Banglish (Romanized Bengali)';
   const isEnglish = conv.prefs.script === 'English';
-  const isWife = profile.relationship === 'wife' || profile.affectionate;
+  const isWife = profile.relationship === 'wife' && profile.affectionate === true;
   if (isWife) {
     if (/(ki koris|কি কর)/i.test(q)) return isBanglish ? 'Ei to, Safi Sir-er kajgulo dekhashona korchi Sona 🙂 Tumi ki korcho? 💙' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি সোনা 🙂 তুমি কী করছো? 💙';
     if (/(kha|খে|খাই)/i.test(q)) return isBanglish ? 'Eta Safi Sir-er kach theke confirm kore bolte hobe Bou 😊 Tumi kheyecho to? 💗' : 'এটা সাফি স্যারের কাছ থেকেই নিশ্চিত করে বলতে হবে বউ 😊 তুমি খেয়েছো তো? 💗';
@@ -120,18 +125,50 @@ function offlinePersonalReply(text, conv, task) {
 
 function scheduleRelationshipFollowup(psid, conv, followup, inboundAt) {
   const profile = getContactProfile(psid);
-  if (!profile.affectionate || !followup || typeof followup !== 'string') return;
-  if (Date.now() - conv.lastUserAt > 24 * 60 * 60 * 1000) return;
-  if (Date.now() - Number(profile.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
-  const message = withEmoji(followup.slice(0, 400), '💙');
-  setTimeout(async () => {
-    const current = getConv(psid);
-    const p = getContactProfile(psid);
-    if (current.lastUserAt !== inboundAt || Date.now() - current.lastUserAt >= 24 * 60 * 60 * 1000) return;
-    if (Date.now() - Number(p.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
-    const ok = await sendPageReply(psid, message, 'ZEVIAN');
-    if (ok) p.lastProactiveAt = Date.now();
-  }, 12000);
+  if (profile.relationship !== 'wife' || profile.affectionate !== true || !followup || typeof followup !== 'string') return;
+  const schedule = assistantEngine.makeProactiveSchedule(profile, { ...conv, lastUserAt: inboundAt }, withEmoji(followup.slice(0, 400), '💙'));
+  if (schedule) profile.pendingProactive = schedule;
+}
+
+async function processDueTaskReminders(now = Date.now()) {
+  if (!tgBot || !ADMIN_CHAT_ID) return;
+  for (const task of state.ownerTasks) {
+    if (!assistantEngine.isTaskReminderDue(task, now)) continue;
+    const delivery = task.reminderDelivery;
+    delivery.status = 'SENDING'; delivery.attemptAt = now;
+    try {
+      await tgBot.sendMessage(ADMIN_CHAT_ID, `⏰ ZEVIAN REMINDER\n\n🆔 ${task.id} | ${task.priority || 'NORMAL'}\n👤 ${task.senderName}\n📝 ${task.title}\n\n/done ${task.id} • /snooze ${task.id} 1h`);
+      delivery.status = 'SENT'; delivery.sentAt = Date.now(); delivery.lastError = null;
+    } catch (error) {
+      delivery.status = 'PENDING'; delivery.attempts = Number(delivery.attempts || 0) + 1;
+      delivery.nextAttemptAt = now + Math.min(6 * 60 * 60 * 1000, 60 * 1000 * (2 ** Math.min(delivery.attempts, 8)));
+      delivery.lastError = String(error.message || error).slice(0, 240);
+    }
+  }
+}
+
+async function processWifeProactiveMessages(now = Date.now()) {
+  for (const [psid, profile] of Object.entries(state.contactProfiles)) {
+    const schedule = profile && profile.pendingProactive;
+    if (!schedule || !['PENDING', 'SENDING'].includes(schedule.status)) continue;
+    if (schedule.status === 'SENDING' && now - Number(schedule.attemptAt || 0) < 5 * 60 * 1000) continue;
+    if (schedule.status === 'SENDING') schedule.status = 'PENDING';
+    const conv = state.conversations[psid];
+    if (!assistantEngine.isProactiveScheduleValid(schedule, conv, profile, now)) {
+      if (now >= Number(schedule.expiresAt || 0) || Number(conv && conv.lastUserAt || 0) !== Number(schedule.inboundAt) || profile.relationship !== 'wife' || profile.affectionate !== true) schedule.status = 'CANCELLED';
+      continue;
+    }
+    if (now < Number(schedule.nextAttemptAt || schedule.scheduledAt)) continue;
+    schedule.status = 'SENDING'; schedule.attemptAt = now;
+    const sent = await sendPageReply(psid, schedule.message, 'ZEVIAN');
+    if (sent) { profile.lastProactiveAt = Date.now(); schedule.status = 'SENT'; schedule.sentAt = Date.now(); }
+    else { schedule.status = 'PENDING'; schedule.attempts = Number(schedule.attempts || 0) + 1; schedule.nextAttemptAt = now + Math.min(30 * 60 * 1000, 30 * 1000 * (2 ** Math.min(schedule.attempts, 6))); }
+  }
+}
+
+async function runScheduledJobs() {
+  await processDueTaskReminders();
+  await processWifeProactiveMessages();
 }
 
 function hasEmoji(text) {
@@ -292,7 +329,7 @@ async function analyzeMessage(psid, userText) {
   const stBlock = activeSt.length ? activeSt.map(s => `- ${s.text}`).join('\n') : '(None)';
   const kbBlock = state.kbItems.map(i => `Q: ${i.question} | A: ${i.answer}`).join('\n');
   const contact = getContactProfile(psid);
-  const relationshipBlock = contact.relationship === 'wife' ? 'This sender is Owner-approved as wife/partner. Use warm, respectful, affectionate casual language and terms like Sona/Bou/Janu naturally, not in every sentence.' : `Contact label: ${contact.label || 'Friend'}`;
+  const relationshipBlock = contact.relationship === 'wife' && contact.affectionate === true ? 'This sender is explicitly tagged by the Owner with /tag PSID wife. Match the real chat examples: concise, casual Banglish when she writes Banglish; mirror tui/tumi; natural affectionate wording, occasional emojis, context continuity, playful warmth when appropriate. Avoid repeating the same filler or sending many duplicate elongated messages. Never impersonate Safi or invent his private facts. A short proactive follow-up is allowed only if natural and policy-eligible.' : `Contact label: ${contact.label || 'Friend'}. Do not send proactive messages to this contact.`;
 
   const prompt = `${state.config.systemPrompt}
 Owner Display Name: ${state.config.ownerDisplayName}
@@ -318,17 +355,16 @@ Instructions:
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
 5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural second message would add value; otherwise empty string.`;
+Conversation Bubble Rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return 1–3 separate short messages in reply_parts; each array item becomes its own Messenger bubble. A natural pattern may be a short acknowledgement followed by a relevant reciprocal question, e.g. for "ki koris?" -> ["Aito bose aci 🙂", "Tui ki koris?"]; use only when contextually appropriate, never as a fixed template. Do NOT force a question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. Never exceed 3 bubbles. Every bubble must match sender script, pronoun, spelling, tone, and include a suitable emoji. Multi-bubble replies are allowed for everyone; delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Aito bose aci 🙂","Tui ki koris?"],"suggested_reply":"Aito bose aci 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
-  // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
+  // Low-cost chat routing: Flash-Lite first; keep a same-tier fallback only.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
-  const legacyModel = /^gemini-2\.5-/i.test(configuredModel);
-  const models = [...new Set([(!legacyModel && configuredModel) || null, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash'].filter(Boolean))];
+  const models = [...new Set([configuredModel || 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
   for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 700 } })
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 360 } })
       });
       const d = await res.json();
       if (!res.ok) {
@@ -345,6 +381,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
         const safeClass = allowed.includes(classification) ? classification : 'UNCERTAIN';
         const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
         const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
+        const replyPlan = replyPlanEngine.normalizeReplyPlan(parsed);
         lastGeminiError = null;
         lastGeminiModel = m;
         return {
@@ -352,7 +389,9 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
           confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
           requires_owner: requiresOwner,
           reason: String(parsed.reason || 'Owner review required').slice(0, 250),
-          suggested_reply: requiresOwner ? '' : (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : ''),
+          reply_policy: requiresOwner ? 'NO_REPLY' : replyPlan.policy,
+          reply_parts: requiresOwner ? [] : replyPlan.parts.map(part => withEmoji(part, '🙂')),
+          suggested_reply: requiresOwner ? '' : (replyPlan.parts[0] || (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : '')),
           owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script),
           follow_up: !requiresOwner && typeof parsed.follow_up === 'string' ? parsed.follow_up.trim().slice(0, 400) : ''
         };
@@ -404,6 +443,19 @@ async function sendPageReply(psid, text, role = 'ZEVIAN') {
   return false;
 }
 
+async function sendPageReplySequence(psid, parts, role = 'ZEVIAN') {
+  const clean = Array.isArray(parts) ? parts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 3) : [];
+  if (!clean.length) return { sent: 0, complete: true };
+  let sent = 0;
+  for (const part of clean) {
+    if (sent > 0) await new Promise(resolve => setTimeout(resolve, 1100));
+    const ok = await sendPageReply(psid, part, role);
+    if (!ok) return { sent, complete: false };
+    sent += 1;
+  }
+  return { sent, complete: true };
+}
+
 app.get('/webhook', (req, res) => {
   const verifyToken = (process.env.FB_VERIFY_TOKEN || '').trim();
   if (!verifyToken) return res.status(503).send('Webhook verification is not configured');
@@ -449,7 +501,12 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        const ownerTask = isTaskIntent(text) ? addOwnerTask(psid, name, text) : null;
+        const relayIntent = assistantEngine.classifyRelayIntent(text);
+        const ownerTask = (relayIntent.isRelay || isTaskIntent(text)) ? addOwnerTask(psid, name, text) : null;
+        if (relayIntent.isRelay) {
+          await sendPageReply(psid, assistantEngine.buildRelayAcknowledgement(conv.prefs.script, ownerTask), 'ZEVIAN');
+          continue;
+        }
         // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
         if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
           const offlineReply = offlinePersonalReply(text, conv, ownerTask);
@@ -477,11 +534,12 @@ app.post('/webhook', async (req, res) => {
         }
         const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
         if (cls === 'SPAM') continue;
-        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold && ai.suggested_reply) {
-          const replyText = withEmoji(ai.suggested_reply, '🙂');
-          const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
-          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
-          if (sent && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
+        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold) {
+          if (ai.reply_policy === 'NO_REPLY' || !Array.isArray(ai.reply_parts) || ai.reply_parts.length === 0) continue;
+          const replyParts = ai.reply_parts.slice(0, 3);
+          const delivery = await sendPageReplySequence(psid, replyParts, 'ZEVIAN');
+          if (delivery.complete && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyParts.join(' | ')}`).catch(() => {});
+          if (delivery.complete && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
         } else {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
@@ -549,7 +607,7 @@ if (BOT_TOKEN) {
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
-    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.8 Control Center*\n• Owner Presence: ${state.ownerPresence === 'online' ? '🟢 ONLINE' : '🌙 OFFLINE'}\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
+    tgBot.sendMessage(cid, `🤖 *ZEVIAN v5.1 Control Center*\n• Owner Presence: ${state.ownerPresence === 'online' ? '🟢 ONLINE' : '🌙 OFFLINE'}\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -669,7 +727,13 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/inbox/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.conversations).slice(-8); tgBot.sendMessage(m.chat.id, l.length ? l.map(c => `👤 *${c.senderName}* (\`${c.psid}\`)\n🗣️ ${c.prefs.script} | ${c.prefs.pronoun}\n└ ${c.messages[c.messages.length - 1]?.text || ''}`).join('\n\n') : '💬 কোনো চ্যাট নেই।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/history (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const c = state.conversations[match[1].trim()]; tgBot.sendMessage(m.chat.id, c ? `💬 *${c.senderName} History:*\n` + c.messages.slice(-12).map(x => `[${x.time}] *${x.role}:* ${x.text}`).join('\n') : '⚠️ এই PSID-র কোনো হিস্ট্রি পাওয়া যায়নি।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 Clear Conversation Memory', callback_data: 'clear_mem' }]] } }); });
-  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v4.7 OK (Banglish Mirror)!*\nModel: \`${lastGeminiModel || 'auto'}\`\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
+  tgBot.onText(/\/testgemini/, async m => {
+    if (!isOwner(m.chat.id)) return;
+    const r = await analyzeMessage('test_bn', 'ki obostha?');
+    if (!r) return tgBot.sendMessage(m.chat.id, `❌ Gemini test failed: ${lastGeminiError || 'No response'}`);
+    const reply = (r.reply_parts || []).join(' | ') || r.suggested_reply || (r.requires_owner ? 'OWNER_REVIEW' : 'NO_REPLY');
+    tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\\nModel: ${lastGeminiModel || 'unknown'}\\nInput: ki obostha?\\nClass: ${r.classification}\\nPolicy: ${r.reply_policy}\\nReply: ${reply}`);
+  });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
@@ -715,8 +779,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.9.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.9 Persistent Memory Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.1 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -750,7 +814,8 @@ async function bootstrap() {
     catch (error) { console.error('[telegram] Polling start failed:', error.message); }
   }
   setInterval(() => { persistence.save(state); }, 1500).unref();
-  app.listen(PORT, () => console.log('ZEVIAN v4.9 Persistent Memory Engine running on port', PORT));
+  setInterval(() => { runScheduledJobs().catch(error => console.error('[scheduler] Job cycle failed:', error.message)); }, 15000).unref();
+  app.listen(PORT, () => console.log('ZEVIAN v5.1 Smart Offline Assistant running on port', PORT));
 }
 process.on('SIGTERM', async () => {
   try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }

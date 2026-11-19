@@ -127,3 +127,42 @@ Do not use a temporary database for important personal reminders. Render's Free 
 - `/snooze TK-201 1h`, `/snooze TK-201 1d` postpone reminders.
 - `/delete_task TK-201` archives a task without deleting its audit context.
 - `/done TK-201` marks a task complete.
+
+
+## ZEVIAN v5.0 — Smart Offline Assistant
+
+### Direct offline message relay
+- Clear requests such as “Safire Bole Dibi J Kalke Sir College a Jaite Bolche”, “সাফিকে বলে দিও কাল স্যার কলেজে যেতে বলেছেন”, or “Please tell Safi to call me tomorrow” are handled deterministically before the personal-question approval gate.
+- ZEVIAN acknowledges the sender directly, creates a task, and sends the owner a Telegram task notification. It does not ask the sender to wait for Owner approval for a clear relay request.
+- Tasks retain sender, original message, priority, due date, and reminder delivery state.
+- If a date is stated but no clock time is given, ZEVIAN uses a clearly disclosed default reminder time of 9:00 AM Asia/Dhaka. If no date is stated, it does not invent one; the task remains visible in `/tasks` without a scheduled due notification.
+- Explicit clock times are interpreted in Asia/Dhaka. For example, “kalke 10:30 e” means 10:30 AM on the next local calendar day.
+- Due reminders are delivered to the authorized Telegram owner chat. Failed sends retry with bounded backoff. A crash between Telegram accepting a message and ZEVIAN persisting its delivery status can still cause a duplicate reminder; Telegram's send API does not provide an idempotency key for this flow.
+
+### Wife-only proactive Messenger messages
+- Proactive Messenger messages are allowed only for a contact explicitly marked with `/tag PSID wife` (which sets both `relationship=wife` and `affectionate=true`).
+- Friends, untagged contacts, and other relationship labels are never eligible for proactive Messenger messages.
+- The AI may schedule one natural follow-up 10 minutes after a reply when the conversation context makes it useful. The schedule is persisted in the encrypted state snapshot, canceled by a newer inbound message, and subject to a six-hour per-contact cooldown.
+- A proactive message is sent only while the most recent inbound message is still inside Meta's standard 24-hour messaging window. ZEVIAN does not send periodic messages to a contact with no recent inbound conversation.
+- If the relationship tag is removed or changed, pending proactive sends are canceled.
+- The wife-specific prompt mirrors her recent chat style, including Banglish/Bengali script, pronouns, concise replies, and natural affectionate tone. It avoids repeated elongated filler and does not impersonate the Owner or fabricate his private facts.
+
+### Operational controls and limits
+- `/tasks`, `/done TK-201`, `/snooze TK-201 1h`, and `/delete_task TK-201` remain available.
+- The due-task scheduler and wife-only proactive queue run in the web process and are persisted through the existing PostgreSQL encrypted snapshot. If PostgreSQL is not configured, process restarts can lose pending state.
+- Render Free services may sleep; scheduled work runs only while the service process is active. Free hosting is not a guaranteed always-on scheduler.
+- Meta messaging-window and permission requirements remain authoritative. No feature bypasses them.
+
+
+## ZEVIAN v5.1 — Natural multi-message conversations
+
+- ZEVIAN can send 1–3 separate Messenger bubbles for one inbound message. Each part is sent as an independent Messenger message, with a short pause between bubbles.
+- Example: when someone asks `ki koris?`, a contextually appropriate response may be:
+  1. `Aito bose aci 🙂`
+  2. `Tui ki koris?`
+- This is an example, not a forced template. The assistant should choose a relevant follow-up question only when it adds conversational value.
+- The model can choose `NO_REPLY` for simple acknowledgements, reactions, repetitive content, or low-value messages. It should not reply to every incoming message.
+- It can ask one concise clarification question when the message is genuinely unclear.
+- Multi-bubble conversational replies apply to all contacts and mirror their language, script, pronouns, spelling, and tone.
+- Delayed proactive Messenger messages remain restricted to the explicitly tagged `/tag PSID wife` contact. A contextual second bubble in the current reply is not a delayed proactive message.
+- At most three bubbles are sent for a single inbound event. If a bubble fails, the sequence stops; duplicate webhook message IDs are ignored.

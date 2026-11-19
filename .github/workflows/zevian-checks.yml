@@ -14,8 +14,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
       - run: npm install --ignore-scripts
       - run: node --check server.js
       - run: node --check persistence.js
+      - run: node --check assistant-engine.js
+      - run: node --check reply-plan.js
       - run: npm test
