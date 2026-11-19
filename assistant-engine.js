@@ -59,6 +59,15 @@ function makeProactiveSchedule(profile, conversation, message, now = Date.now())
   const clean = String(message || '').trim().slice(0, 400); if (!clean) return null;
   return { message: clean, inboundAt: Number(conversation.lastUserAt), scheduledAt: now + PROACTIVE_DELAY_MS, expiresAt: Number(conversation.lastUserAt) + DAY_MS, status: 'PENDING' };
 }
+function isTaskReminderDue(task, now = Date.now()) {
+  if (!task || task.status !== 'OPEN' || !task.dueAt || !task.reminderDelivery) return false;
+  const delivery = task.reminderDelivery;
+  if (delivery.status === 'SENT') return false;
+  if (Number(task.snoozedUntil || 0) > now) return false;
+  if (delivery.status === 'SENDING' && now - Number(delivery.attemptAt || 0) < 5 * 60 * 1000) return false;
+  return Number(delivery.nextAttemptAt || task.dueAt) <= now;
+}
+
 function isProactiveScheduleValid(schedule, conversation, profile, now = Date.now()) {
   if (!schedule || schedule.status !== 'PENDING') return false;
   if (!canSendWifeProactive(profile, { lastUserAt: schedule.inboundAt }, now)) return false;
