@@ -513,13 +513,13 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
         // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
-        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
+        if ((isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
           const offlineReply = offlinePersonalReply(text, conv, ownerTask);
           await sendPageReply(psid, offlineReply, 'ZEVIAN');
           continue;
         }
         // When Owner is online, personal questions are routed to Owner approval.
-        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text)) {
+        if ((isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text)) {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
             : conv.prefs.script === 'English'
