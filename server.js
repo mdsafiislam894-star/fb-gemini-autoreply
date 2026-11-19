@@ -92,7 +92,7 @@ const STATUS_CUES = [
 ];
 
 const processedIds = new Set();
-let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, tgBot = null;
+let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, lastGeminiModel = null, tgBot = null;
 
 function getActiveStatuses() {
   const now = Date.now();
@@ -246,6 +246,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
         const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
         const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
         lastGeminiError = null;
+        lastGeminiModel = m;
         return {
           classification: safeClass,
           confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
@@ -427,7 +428,7 @@ if (BOT_TOKEN) {
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
-    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.5 Ultimate Control Center*\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiError ? '⚠️ Error (/testgemini)' : '✅ Ready'}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
+    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.7 AI Control Center*\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiError ? '⚠️ Error (/testgemini)' : '✅ Ready'}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -524,8 +525,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.6.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.5 Ultimate (Banglish Mirror Mode)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.7.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError && Boolean(lastGeminiModel), geminiModel: lastGeminiModel, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.7 AI Reply Engine (Emoji + Banglish Mirror)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
