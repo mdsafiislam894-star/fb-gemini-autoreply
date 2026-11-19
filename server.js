@@ -471,7 +471,7 @@ app.post('/webhook', async (req, res) => {
   if (!verifySig(req)) { console.warn('[webhook] rejected request: signature verification failed'); return res.sendStatus(403); }
   const body = req.body;
   if (body.object !== 'page') return res.sendStatus(404);
-  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));\n  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));
+  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));
   res.status(200).send('EVENT_RECEIVED');
   if (!state.config.masterActive) return;
 
