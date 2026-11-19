@@ -27,7 +27,7 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Context-Aware Emoji: use at most 1 natural emoji for casual/warm messages, 0 emoji for sad/serious/formal messages. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
+    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
   },
   ownerStatuses: [],
   kbItems: [
@@ -223,7 +223,8 @@ Instructions:
    - If Bengali script, reply in Bengali script. If English, reply in English. If Mixed, reply in Mixed.
 3. If an Approved Active Status directly answers a personal/activity question, set classification="GENERAL", requires_owner=false, and reply naturally in the user's exact script & pronoun using that approved status.
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
-5. If PERSONAL (owner's plans/location/eating/college/calls without active status), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true, suggested_reply="", and provide 3-4 natural optional replies in "owner_suggestions" matching the user's script & pronoun.
+5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
+6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
 Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."]}`;
 
   // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
@@ -233,13 +234,34 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
   for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, responseMimeType: 'application/json' } })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000),
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 700 } })
       });
       const d = await res.json();
-      if (!res.ok) { lastGeminiError = `${m} HTTP ${res.status}: ${d.error ? d.error.message : 'Error'}`; continue; }
-      const raw = d.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (raw) { lastGeminiError = null; return JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()); }
+      if (!res.ok) {
+        lastGeminiError = `${m} HTTP ${res.status}: ${d.error ? d.error.message : 'Error'}`;
+        if (res.status === 401 || res.status === 403) return null;
+        if ([400, 404, 429, 500, 502, 503, 504].includes(res.status)) continue;
+        return null;
+      }
+      const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
+      if (raw) {
+        const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+        const allowed = ['GENERAL', 'PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT', 'SPAM', 'FOLLOW_UP'];
+        const classification = String(parsed.classification || 'UNCERTAIN').toUpperCase();
+        const safeClass = allowed.includes(classification) ? classification : 'UNCERTAIN';
+        const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
+        const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
+        lastGeminiError = null;
+        return {
+          classification: safeClass,
+          confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
+          requires_owner: requiresOwner,
+          reason: String(parsed.reason || 'Owner review required').slice(0, 250),
+          suggested_reply: requiresOwner ? '' : withEmoji(parsed.suggested_reply || '', '🙂'),
+          owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script)
+        };
+      }
     } catch (e) { lastGeminiError = `${m}: ${e.message}`; }
   }
   return null;
