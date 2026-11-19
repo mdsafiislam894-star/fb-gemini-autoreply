@@ -17,7 +17,7 @@ const config = {
   pageDmEnabled: true,
   commentReplyEnabled: true,
   commentInboxEnabled: true,
-  geminiModel: (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim(),
+  geminiModel: 'gemini-3.8-flash',
   knowledgeBase: 'Page Name: ZEVIAN. ZEVIAN is an AI-powered personal messaging assistant for this Facebook Page.',
   systemPrompt: 'You are ZEVIAN, a friendly, natural, polite personal Messenger assistant for this Facebook Page. Reply naturally in the exact language of the user (Bengali, English, or Banglish). Keep replies concise (1-3 sentences) and conversational with light emojis when natural. NEVER invent the owner\'s personal plans, location, feelings, promises, or private facts.'
 };
@@ -76,7 +76,7 @@ async function callGeminiClassifier(psid, userText) {
   const conv = getOrCreateConv(psid);
   const history = conv.messages.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
   const prompt = `${config.systemPrompt}\n\nKnowledge Base:\n${config.knowledgeBase}\n\nRecent Conversation:\n${history || '(New)'}\n\nLatest User Message:\n"${userText}"\n\nClassify into ONE of: GENERAL, PERSONAL, UNCERTAIN, SENSITIVE, SPAM.\n- GENERAL: greetings, casual chat, Page/KB questions -> set requires_owner=false and write a natural reply in the user's language in "suggested_reply".\n- PERSONAL: owner's location, plans, college, eating, calls, personal decision -> set requires_owner=true, suggested_reply="".\n- UNCERTAIN/SENSITIVE: ambiguous or private -> set requires_owner=true.\nReturn ONLY valid JSON with keys: classification, confidence, language, requires_owner, reason, suggested_reply.`;
-  const modelsToTry = [config.geminiModel, 'gemini-2.5-flash', 'gemini-2.0-flash'].filter((v, i, a) => v && a.indexOf(v) === i);
+  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', config.geminiModel].filter((v, i, a) => v && a.indexOf(v) === i);
   for (const model of modelsToTry) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
