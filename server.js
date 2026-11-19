@@ -262,8 +262,10 @@ async function callGraph(endpoint, payload) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     });
     const d = await res.json();
-    if (d && d.error) state.stats.failed += 1;
-    else state.stats.totalOut += 1;
+    if (d && d.error) {
+      state.stats.failed += 1;
+      console.error('[messenger] Graph API rejected request:', JSON.stringify({ code: d.error.code, subcode: d.error.error_subcode, type: d.error.type, message: d.error.message }));
+    } else state.stats.totalOut += 1;
     return d;
   } catch (e) { state.stats.failed += 1; return { error: e.message }; }
 }
@@ -468,7 +470,8 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', async (req, res) => {
   if (!verifySig(req)) { console.warn('[webhook] rejected request: signature verification failed'); return res.sendStatus(403); }
   const body = req.body;
-  if (body.object !== 'page') return res.sendStatus(404);\n  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));
+  if (body.object !== 'page') return res.sendStatus(404);
+  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));\n  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));
   res.status(200).send('EVENT_RECEIVED');
   if (!state.config.masterActive) return;
 
@@ -499,6 +502,7 @@ app.post('/webhook', async (req, res) => {
         }
         const text = ev.message?.text;
         if (!text) continue;
+        console.info('[webhook] inbound text accepted', JSON.stringify({ sender: String(psid).slice(-4), messageId: mid || null, length: text.length }));
         pushMsg(psid, 'User', text);
         const activityIntent = assistantEngine.classifyActivityQuestion(text);
         if (activityIntent.kind === 'assistant_activity') {
@@ -784,8 +788,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.1 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.1', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.1.1 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
