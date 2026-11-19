@@ -107,12 +107,18 @@ async function callGraph(endpoint, payload) {
 
 async function sendMultiBubble(psid, bubbles) {
   const list = Array.isArray(bubbles) ? bubbles.filter(b => b && b.trim()) : [String(bubbles || '').trim()].filter(Boolean);
+   let lastErr = null;
   for (let i = 0; i < list.length; i++) {
     await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-    await sleep(i === 0 ? 700 : 1400);
-    await callGraph('me/messages', { recipient: { id: psid }, message: { text: list[i].trim() } });
-    pushMsg(psid, 'ZEVIAN', list[i].trim());
+    await sleep(i === 0 ? 500 : 1100);
+    let res = await callGraph('me/messages', { recipient: { id: psid }, messaging_type: 'RESPONSE', message: { text: list[i].trim() } });
+    if (!res || !res.message_id) { await sleep(1000); res = await callGraph('me/messages', { recipient: { id: psid }, messaging_type: 'RESPONSE', message: { text: list[i].trim() } }); }
+   if (res && res.message_id) { pushMsg(psid, 'ZEVIAN', list[i].trim()); } else { lastErr = res && res.error ? (res.error.message || JSON.stringify(res.error)) : JSON.stringify(res); if (tgBot && ADMIN_CHAT_ID) { tgBot.sendMessage(ADMIN_CHAT_ID, `🔴 *Messenger Send Failed*
+👤 PSID: \`${psid}\`
+⚠️ Error: \`${lastErr}\``, { parse_mode: 'Markdown' }).catch(() => {}); } }
   }
+  await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_off' });
+  return !lastErr;
 }
 
 async function fetchSenderName(psid) {
@@ -247,7 +253,7 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
 }
 
 async function sendOwnerReply(psid, text, pid = null) {
-  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text } });
+  const res = await callGraph('me/messages', { recipient: { id: psid }, messaging_type: 'RESPONSE', message: { text } });
   if (res && res.message_id) {
     pushMsg(psid, 'Owner', text); state.stats.ownerReplied += 1;
     if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = text; }
