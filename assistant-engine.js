@@ -13,7 +13,7 @@ function classifyActivityQuestion(message) {
   const hasBangla = /[\u0980-\u09ff]/.test(text);
   const hasBanglishCue = /\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor)\b/i.test(t);
   const hasOwner = /\b(safi|owner|sir)\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
-  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে)/u.test(text);
+  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|kemon|how are you)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে)/u.test(text);
   const script = hasBangla ? 'Bengali' : (hasBanglishCue ? 'Banglish' : 'English');
   if (hasOwner && activity) return { kind: 'owner_activity', script };
   if (!hasOwner && activity) return { kind: 'assistant_activity', script };
