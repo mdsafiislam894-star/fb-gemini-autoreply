@@ -357,7 +357,7 @@ Instructions:
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
 5. If PERSONAL (the owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". IMPORTANT: "What are YOU doing?", "ki koro?", "ki koris?", and "ki obostha?" address ZEVIAN, not the Owner; classify them GENERAL and reply as ZEVIAN. Only classify as PERSONAL when the sender clearly asks about Safi / the Owner / Sir. Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Conversation Bubble Rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return 1–3 separate short messages in reply_parts; each array item becomes its own Messenger bubble. A natural pattern may be a short acknowledgement followed by a relevant reciprocal question, e.g. for "ki koris?" -> ["Aito bose aci 🙂", "Tui ki koris?"]; use only when contextually appropriate, never as a fixed template. Do NOT force a question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. Never exceed 3 bubbles. Every bubble must match sender script, pronoun, spelling, tone, and include a suitable emoji. Multi-bubble replies are allowed for everyone; delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Aito bose aci 🙂","Tui ki koris?"],"suggested_reply":"Aito bose aci 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
+Single-reply conversation rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return exactly ONE concise Messenger reply in reply_parts (one array item only), not multiple bubbles. For a casual message such as "ki koris?", answer naturally in one message, e.g. "Ei to, tomar sathe kotha bolchi 🙂". For "Koi achis?" answer naturally in one message. For "Oiii" use a short natural greeting. Do NOT force a reciprocal question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. The single reply must match sender script, pronoun, spelling, tone, and include a suitable emoji. Never send more than one reply per inbound message. Delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Ei to, tomar sathe kotha bolchi 🙂"],"suggested_reply":"Ei to, tomar sathe kotha bolchi 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
   // Low-cost chat routing: Flash-Lite first; keep a same-tier fallback only.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
@@ -446,11 +446,10 @@ async function sendPageReply(psid, text, role = 'ZEVIAN') {
 }
 
 async function sendPageReplySequence(psid, parts, role = 'ZEVIAN') {
-  const clean = Array.isArray(parts) ? parts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 3) : [];
+  const clean = Array.isArray(parts) ? parts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 1) : [];
   if (!clean.length) return { sent: 0, complete: true };
   let sent = 0;
   for (const part of clean) {
-    if (sent > 0) await new Promise(resolve => setTimeout(resolve, 1100));
     const ok = await sendPageReply(psid, part, role);
     if (!ok) return { sent, complete: false };
     sent += 1;
@@ -545,7 +544,7 @@ app.post('/webhook', async (req, res) => {
         if (cls === 'SPAM') continue;
         if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && true) {
           if (ai.reply_policy === 'NO_REPLY' || !Array.isArray(ai.reply_parts) || ai.reply_parts.length === 0) continue;
-          const replyParts = ai.reply_parts.slice(0, 3);
+          const replyParts = ai.reply_parts.slice(0, 1);
           const delivery = await sendPageReplySequence(psid, replyParts, 'ZEVIAN');
           if (delivery.complete && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyParts.join(' | ')}`).catch(() => {});
           if (delivery.complete && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
