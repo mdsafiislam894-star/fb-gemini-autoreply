@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const persistence = require('./persistence');
+const assistantEngine = require('./assistant-engine');
 
 const app = express();
 app.use(cors());
@@ -28,7 +29,7 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For explicitly tagged wife/partner contacts, use affectionate natural language; never pretend to be the Owner. (13) Optionally provide one short follow_up question for a wife/partner contact; leave it empty if repetitive or intrusive.'
+    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For contacts explicitly tagged with /tag PSID wife only, use recent conversation context and mirror their script, spelling, pronouns, short-message rhythm, and natural affectionate style. Avoid repetitive elongated filler, repeated messages, and overuse of pet names. Never impersonate the Owner or invent the Owner's private facts. (13) Only this wife-tagged contact may receive a delayed proactive follow-up; generate one only when it adds natural value, otherwise leave follow_up empty.'
   },
   ownerStatuses: [],
   ownerPresence: 'offline',
@@ -58,6 +59,7 @@ function getContactProfile(psid) {
 }
 
 function isTaskIntent(text) {
+  if (assistantEngine.classifyRelayIntent(text).isRelay) return true;
   const t = String(text || '').toLowerCase();
   return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol|কালকে.{0,20}(কলেজ|স্যার|যাবি|যাবে)|আগামীকাল.{0,20}(কলেজ|স্যার|যাবি|যাবে)|tomorrow.{0,30}(college|sir|teacher)|kalke.{0,30}(college|sir|teacher))/i.test(t);
 }
@@ -80,6 +82,7 @@ function inferTaskPriority(message) {
 }
 
 function addOwnerTask(psid, senderName, message) {
+  const intent = assistantEngine.classifyRelayIntent(message);
   const duplicate = state.ownerTasks.find(t => t.status === 'OPEN' && t.psid === psid && t.sourceMessage === message);
   if (duplicate) return duplicate;
   state.taskCounter += 1;
@@ -87,7 +90,7 @@ function addOwnerTask(psid, senderName, message) {
     id: 'TK-' + state.taskCounter,
     psid, senderName, sourceMessage: String(message).slice(0, 1000),
     title: String(message).slice(0, 180),
-    status: 'OPEN', priority: inferTaskPriority(message), dueAt: inferTaskDueAt(message), createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
+    status: 'OPEN', priority: intent.isRelay ? intent.priority : inferTaskPriority(message), dueAt: intent.isRelay ? intent.dueAt : inferTaskDueAt(message), dueDate: intent.dueDate || null, dueTimeSource: intent.dueTimeSource || null, timeSpecified: Boolean(intent.timeSpecified), reminderDelivery: intent.dueAt ? { status: 'PENDING', attempts: 0, nextAttemptAt: intent.dueAt, sentAt: null } : null, createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
   };
   state.ownerTasks.unshift(task);
   if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
@@ -120,18 +123,49 @@ function offlinePersonalReply(text, conv, task) {
 
 function scheduleRelationshipFollowup(psid, conv, followup, inboundAt) {
   const profile = getContactProfile(psid);
-  if (!profile.affectionate || !followup || typeof followup !== 'string') return;
-  if (Date.now() - conv.lastUserAt > 24 * 60 * 60 * 1000) return;
-  if (Date.now() - Number(profile.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
-  const message = withEmoji(followup.slice(0, 400), '💙');
-  setTimeout(async () => {
-    const current = getConv(psid);
-    const p = getContactProfile(psid);
-    if (current.lastUserAt !== inboundAt || Date.now() - current.lastUserAt >= 24 * 60 * 60 * 1000) return;
-    if (Date.now() - Number(p.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
-    const ok = await sendPageReply(psid, message, 'ZEVIAN');
-    if (ok) p.lastProactiveAt = Date.now();
-  }, 12000);
+  if (profile.relationship !== 'wife' || profile.affectionate !== true || !followup || typeof followup !== 'string') return;
+  const schedule = assistantEngine.makeProactiveSchedule(profile, { ...conv, lastUserAt: inboundAt }, withEmoji(followup.slice(0, 400), '💙'));
+  if (schedule) profile.pendingProactive = schedule;
+}
+
+async function processDueTaskReminders(now = Date.now()) {
+  if (!tgBot || !ADMIN_CHAT_ID) return;
+  for (const task of state.ownerTasks) {
+    const delivery = task.reminderDelivery;
+    if (task.status !== 'OPEN' || !task.dueAt || !delivery || delivery.status === 'SENT' || Number(delivery.nextAttemptAt || task.dueAt) > now) continue;
+    if (delivery.status === 'SENDING' && now - Number(delivery.attemptAt || 0) < 5 * 60 * 1000) continue;
+    delivery.status = 'SENDING'; delivery.attemptAt = now;
+    try {
+      await tgBot.sendMessage(ADMIN_CHAT_ID, `⏰ ZEVIAN REMINDER\n\n🆔 ${task.id} | ${task.priority || 'NORMAL'}\n👤 ${task.senderName}\n📝 ${task.title}\n\n/done ${task.id} • /snooze ${task.id} 1h`);
+      delivery.status = 'SENT'; delivery.sentAt = Date.now(); delivery.lastError = null;
+    } catch (error) {
+      delivery.status = 'PENDING'; delivery.attempts = Number(delivery.attempts || 0) + 1;
+      delivery.nextAttemptAt = now + Math.min(6 * 60 * 60 * 1000, 60 * 1000 * (2 ** Math.min(delivery.attempts, 8)));
+      delivery.lastError = String(error.message || error).slice(0, 240);
+    }
+  }
+}
+
+async function processWifeProactiveMessages(now = Date.now()) {
+  for (const [psid, profile] of Object.entries(state.contactProfiles)) {
+    const schedule = profile && profile.pendingProactive;
+    if (!schedule || schedule.status !== 'PENDING') continue;
+    const conv = state.conversations[psid];
+    if (!assistantEngine.isProactiveScheduleValid(schedule, conv, profile, now)) {
+      if (now >= Number(schedule.expiresAt || 0) || Number(conv && conv.lastUserAt || 0) !== Number(schedule.inboundAt) || profile.relationship !== 'wife' || profile.affectionate !== true) schedule.status = 'CANCELLED';
+      continue;
+    }
+    if (now < Number(schedule.nextAttemptAt || schedule.scheduledAt)) continue;
+    schedule.status = 'SENDING'; schedule.attemptAt = now;
+    const sent = await sendPageReply(psid, schedule.message, 'ZEVIAN');
+    if (sent) { profile.lastProactiveAt = Date.now(); schedule.status = 'SENT'; schedule.sentAt = Date.now(); }
+    else { schedule.status = 'PENDING'; schedule.attempts = Number(schedule.attempts || 0) + 1; schedule.nextAttemptAt = now + Math.min(30 * 60 * 1000, 30 * 1000 * (2 ** Math.min(schedule.attempts, 6))); }
+  }
+}
+
+async function runScheduledJobs() {
+  await processDueTaskReminders();
+  await processWifeProactiveMessages();
 }
 
 function hasEmoji(text) {
@@ -292,7 +326,7 @@ async function analyzeMessage(psid, userText) {
   const stBlock = activeSt.length ? activeSt.map(s => `- ${s.text}`).join('\n') : '(None)';
   const kbBlock = state.kbItems.map(i => `Q: ${i.question} | A: ${i.answer}`).join('\n');
   const contact = getContactProfile(psid);
-  const relationshipBlock = contact.relationship === 'wife' ? 'This sender is Owner-approved as wife/partner. Use warm, respectful, affectionate casual language and terms like Sona/Bou/Janu naturally, not in every sentence.' : `Contact label: ${contact.label || 'Friend'}`;
+  const relationshipBlock = contact.relationship === 'wife' && contact.affectionate === true ? 'This sender is explicitly tagged by the Owner with /tag PSID wife. Match the real chat examples: concise, casual Banglish when she writes Banglish; mirror tui/tumi; natural affectionate wording, occasional emojis, context continuity, playful warmth when appropriate. Avoid repeating the same filler or sending many duplicate elongated messages. Never impersonate Safi or invent his private facts. A short proactive follow-up is allowed only if natural and policy-eligible.' : `Contact label: ${contact.label || 'Friend'}. Do not send proactive messages to this contact.`;
 
   const prompt = `${state.config.systemPrompt}
 Owner Display Name: ${state.config.ownerDisplayName}
@@ -449,7 +483,12 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        const ownerTask = isTaskIntent(text) ? addOwnerTask(psid, name, text) : null;
+        const relayIntent = assistantEngine.classifyRelayIntent(text);
+        const ownerTask = (relayIntent.isRelay || isTaskIntent(text)) ? addOwnerTask(psid, name, text) : null;
+        if (relayIntent.isRelay) {
+          await sendPageReply(psid, assistantEngine.buildRelayAcknowledgement(conv.prefs.script, ownerTask), 'ZEVIAN');
+          continue;
+        }
         // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
         if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
           const offlineReply = offlinePersonalReply(text, conv, ownerTask);
@@ -715,8 +754,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.9.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.9 Persistent Memory Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '5.0.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.0 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -750,7 +789,8 @@ async function bootstrap() {
     catch (error) { console.error('[telegram] Polling start failed:', error.message); }
   }
   setInterval(() => { persistence.save(state); }, 1500).unref();
-  app.listen(PORT, () => console.log('ZEVIAN v4.9 Persistent Memory Engine running on port', PORT));
+  setInterval(() => { runScheduledJobs().catch(error => console.error('[scheduler] Job cycle failed:', error.message)); }, 15000).unref();
+  app.listen(PORT, () => console.log('ZEVIAN v5.0 Smart Offline Assistant running on port', PORT));
 }
 process.on('SIGTERM', async () => {
   try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
