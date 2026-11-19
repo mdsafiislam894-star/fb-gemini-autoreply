@@ -86,11 +86,12 @@ function addOwnerTask(psid, senderName, message) {
   const duplicate = state.ownerTasks.find(t => t.status === 'OPEN' && t.psid === psid && t.sourceMessage === message);
   if (duplicate) return duplicate;
   state.taskCounter += 1;
+  const dueAt = intent.isRelay ? intent.dueAt : inferTaskDueAt(message);
   const task = {
     id: 'TK-' + state.taskCounter,
     psid, senderName, sourceMessage: String(message).slice(0, 1000),
     title: String(message).slice(0, 180),
-    status: 'OPEN', priority: intent.isRelay ? intent.priority : inferTaskPriority(message), dueAt: intent.isRelay ? intent.dueAt : inferTaskDueAt(message), dueDate: intent.dueDate || null, dueTimeSource: intent.dueTimeSource || null, timeSpecified: Boolean(intent.timeSpecified), reminderDelivery: intent.dueAt ? { status: 'PENDING', attempts: 0, nextAttemptAt: intent.dueAt, sentAt: null } : null, createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
+    status: 'OPEN', priority: intent.isRelay ? intent.priority : inferTaskPriority(message), dueAt, dueDate: intent.dueDate || null, dueTimeSource: intent.dueTimeSource || null, timeSpecified: Boolean(intent.timeSpecified), reminderDelivery: dueAt ? { status: 'PENDING', attempts: 0, nextAttemptAt: dueAt, sentAt: null } : null, createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
   };
   state.ownerTasks.unshift(task);
   if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
