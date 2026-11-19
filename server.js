@@ -466,9 +466,9 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-  if (!verifySig(req)) return res.sendStatus(403);
+  if (!verifySig(req)) { console.warn('[webhook] rejected request: signature verification failed'); return res.sendStatus(403); }
   const body = req.body;
-  if (body.object !== 'page') return res.sendStatus(404);
+  if (body.object !== 'page') return res.sendStatus(404);\n  console.info('[webhook] accepted page event', JSON.stringify({ entries: (body.entry || []).length }));
   res.status(200).send('EVENT_RECEIVED');
   if (!state.config.masterActive) return;
 
@@ -805,6 +805,8 @@ async function bootstrap() {
         for (const key of Object.keys(state)) {
           if (Object.prototype.hasOwnProperty.call(saved, key)) state[key] = saved[key];
         }
+        const mirrorPatch = 'IMPORTANT MIRROR PATCH: Questions like "Ki koro?", "Ki koris?", "Ki obostha?", and "What are you doing?" address ZEVIAN itself; answer naturally as the assistant in the sender script. Only route a question to the Owner when the sender explicitly asks about Safi / Owner / Sir or another clearly personal fact.';
+        if (!String(state.config.systemPrompt || '').includes('IMPORTANT MIRROR PATCH:')) state.config.systemPrompt = String(state.config.systemPrompt || '') + '\n\n' + mirrorPatch;
         console.log('[persistence] Encrypted owner state restored from PostgreSQL');
       } else {
         console.log('[persistence] New encrypted state store initialized');
