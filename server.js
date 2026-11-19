@@ -251,7 +251,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
           confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
           requires_owner: requiresOwner,
           reason: String(parsed.reason || 'Owner review required').slice(0, 250),
-          suggested_reply: requiresOwner ? '' : withEmoji(parsed.suggested_reply || '', '🙂'),
+          suggested_reply: requiresOwner ? '' : (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : ''),
           owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script)
         };
       }
@@ -388,7 +388,7 @@ app.post('/webhook', async (req, res) => {
           if (!cid || fid === pageId || !ct || processedIds.has(cid)) continue;
           processedIds.add(cid);
           const ai = await analyzeMessage(`c_${fid || cid}`, `[Post Comment]: ${ct}`);
-          const rep = (ai && ai.suggested_reply) || `ধন্যবাদ ${fn}! কীভাবে সাহায্য করতে পারি?`;
+          const rep = withEmoji((ai && ai.suggested_reply) || `ধন্যবাদ ${fn}! কীভাবে সাহায্য করতে পারি?`, '😊');
           if (state.config.commentReplyEnabled) await callGraph(`${cid}/comments`, { message: `ধন্যবাদ ${fn}! আপনার ইনবক্সে বিস্তারিত পাঠিয়ে দেওয়া হয়েছে 😊` });
           if (state.config.commentInboxEnabled) await callGraph(`${pageId}/messages`, { recipient: { comment_id: cid }, message: { text: rep } });
         }
