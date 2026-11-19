@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080d19"><title>ZEVIAN Control</title>
+<style>
+:root{color-scheme:dark;--bg:#080d19;--panel:#111a2b;--line:#24324a;--muted:#91a0b8;--text:#eef4ff;--accent:#8b7cff;--cyan:#4bd5d0;--green:#46d39a;--red:#ff7185}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% 0,#18244a 0,transparent 38%),var(--bg);color:var(--text);font:15px system-ui,-apple-system,"Noto Sans Bengali",sans-serif;min-height:100vh}
+main{max-width:900px;margin:auto;padding:28px 18px 48px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:24px}.brand{display:flex;gap:12px;align-items:center}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--cyan));display:grid;place-items:center;color:#07101c;font-weight:900;font-size:20px}.eyebrow{color:var(--muted);font-size:12px;letter-spacing:.12em;text-transform:uppercase}.title{font-size:24px;font-weight:750;margin:2px 0}.pill{border:1px solid var(--line);padding:7px 11px;border-radius:99px;color:var(--muted);font-size:12px}.hero{background:linear-gradient(130deg,#171f3b,#111a2b 70%);border:1px solid #344366;border-radius:22px;padding:22px;margin-bottom:16px}.hero h2{font-size:19px;margin:0 0 7px}.hero p{color:var(--muted);margin:0;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:17px;padding:17px;min-height:112px}.label{color:var(--muted);font-size:13px}.value{font-size:25px;font-weight:750;margin-top:10px;letter-spacing:-.03em}.sub{font-size:12px;color:var(--muted);margin-top:3px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:7px}.dot.bad{background:var(--red)}.section{font-size:15px;margin:25px 0 10px}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 0;border-bottom:1px solid var(--line)}.row:last-child{border:0}.row small{color:var(--muted)}button{background:#202b46;border:1px solid #3b4b70;color:var(--text);border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer}footer{color:var(--muted);font-size:12px;text-align:center;margin-top:26px}.error{color:var(--red)}@media(min-width:650px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:360px){.title{font-size:20px}.pill{font-size:10px}}
+</style></head>
+<body><main>
+<header class="top"><div class="brand"><div class="logo">Z</div><div><div class="eyebrow">Messenger assistant</div><div class="title">ZEVIAN</div></div></div><div class="pill" id="connection">Connecting…</div></header>
+<section class="hero"><h2>Live system overview</h2><p>ZEVIAN-এর বর্তমান সার্ভার অবস্থা ও মেসেজিং পরিসংখ্যান। Owner control এবং pending reply পরিচালনা Telegram bot থেকেই হবে।</p></section>
+<div class="grid">
+<div class="card"><div class="label">Master status</div><div class="value" id="master">—</div><div class="sub">Automatic reply switch</div></div>
+<div class="card"><div class="label">Gemini</div><div class="value" id="gemini">—</div><div class="sub">AI readiness indicator</div></div>
+<div class="card"><div class="label">Pending replies</div><div class="value" id="pending">—</div><div class="sub">Waiting for owner</div></div>
+<div class="card"><div class="label">Active statuses</div><div class="value" id="statuses">—</div><div class="sub">Shareable owner status</div></div>
+</div>
+<h3 class="section">Server details</h3><section class="card">
+<div class="row"><span>Application version</span><strong id="version">—</strong></div>
+<div class="row"><span>Uptime</span><strong id="uptime">—</strong></div>
+<div class="row"><span>Last checked</span><strong id="checked">—</strong></div>
+<div class="row"><span>Health endpoint</span><a href="/health" style="color:var(--cyan)">Open JSON ↗</a></div>
+</section>
+<div class="row" style="margin-top:18px"><small id="message">Health data refreshes every 20 seconds.</small><button id="refresh">Refresh now</button></div>
+<footer>ZEVIAN • Secure owner-controlled assistant</footer>
+</main>
+<script>
+const el=id=>document.getElementById(id);
+function duration(s){s=Math.max(0,Number(s)||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),sec=s%60;return h+'h '+m+'m '+sec+'s'}
+async function refresh(){el('refresh').disabled=true;try{const r=await fetch('/health',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();el('connection').textContent='● Connected';el('connection').style.color='var(--green)';el('master').textContent=d.masterActive?'ACTIVE':'PAUSED';el('gemini').textContent=d.geminiOk?'READY':'CHECK';el('pending').textContent=d.pendingCount??'—';el('statuses').textContent=d.activeStatuses??'—';el('version').textContent=d.version||'—';el('uptime').textContent=duration(d.uptime);el('checked').textContent=new Date().toLocaleTimeString();el('message').textContent='Health data refreshed.'}catch(e){el('connection').textContent='● Offline';el('connection').style.color='var(--red)';el('message').textContent='Could not load health data: '+e.message;el('message').className='error'}finally{el('refresh').disabled=false}}
+el('refresh').addEventListener('click',refresh);refresh();setInterval(refresh,20000);
+</script></body></html>

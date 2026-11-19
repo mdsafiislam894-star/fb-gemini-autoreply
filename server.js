@@ -76,11 +76,13 @@ function addStatus(text, vis, mins) {
 }
 
 function verifySig(req) {
-  if (!APP_SECRET) return true;
+  // Fail closed: never accept an unsigned webhook when the App Secret is missing.
+  if (!APP_SECRET || !req.rawBody) return false;
   const sig = req.headers['x-hub-signature-256'];
-  if (!sig || !req.rawBody) return false;
-  const exp = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
-  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(exp)); } catch (_) { return false; }
+  if (typeof sig !== 'string' || !/^sha256=[a-f0-9]{64}$/i.test(sig)) return false;
+  const expected = Buffer.from('sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex'));
+  const received = Buffer.from(sig);
+  return received.length === expected.length && crypto.timingSafeEqual(received, expected);
 }
 
 async function callGraph(endpoint, payload) {
@@ -184,7 +186,8 @@ Instructions:
 5. If PERSONAL (owner's plans/location/eating/college/calls without active status), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true, suggested_reply="", and provide 3-4 natural optional replies in "owner_suggestions" matching the user's script & pronoun.
 Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."]}`;
 
-  const models = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'];
+  const configuredModel = (process.env.GEMINI_MODEL || '').trim();
+  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean))];
   for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`, {
@@ -232,7 +235,11 @@ async function sendOwnerReply(psid, text, pid = null) {
 }
 
 app.get('/webhook', (req, res) => {
-  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === (process.env.FB_VERIFY_TOKEN || 'safi_page_verify_2026').trim()) return res.status(200).send(req.query['hub.challenge']);
+  const verifyToken = (process.env.FB_VERIFY_TOKEN || '').trim();
+  if (!verifyToken) return res.status(503).send('Webhook verification is not configured');
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === verifyToken) {
+    return res.status(200).send(String(req.query['hub.challenge'] || ''));
+  }
   return res.sendStatus(403);
 });
 
@@ -338,7 +345,8 @@ if (BOT_TOKEN) {
     { command: 'testgemini', description: 'Gemini ও Banglish Mirror টেস্ট করুন' }
   ]).catch(() => {});
 
-  const isOwner = cid => !ADMIN_CHAT_ID || String(cid) === String(ADMIN_CHAT_ID);
+  // Owner controls must be disabled unless an explicit Telegram admin chat ID is configured.
+  const isOwner = cid => Boolean(ADMIN_CHAT_ID) && String(cid) === String(ADMIN_CHAT_ID);
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
@@ -439,8 +447,16 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.5.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.6.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
 app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.5 Ultimate (Banglish Mirror Mode)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('ZEVIAN v4.5 Ultimate running on port', PORT));
+const missingRequired = [
+  ['FB_APP_SECRET', APP_SECRET],
+  ['FB_VERIFY_TOKEN', (process.env.FB_VERIFY_TOKEN || '').trim()],
+  ['TELEGRAM_ADMIN_CHAT_ID', ADMIN_CHAT_ID]
+].filter(([, value]) => !value).map(([name]) => name);
+if (missingRequired.length) {
+  console.error('ZEVIAN security configuration missing:', missingRequired.join(', '));
+}
+app.listen(PORT, () => console.log('ZEVIAN v4.6 security-hardened running on port', PORT));
