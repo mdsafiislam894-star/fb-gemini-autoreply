@@ -606,8 +606,10 @@ if (BOT_TOKEN) {
     if (!isOwner(m.chat.id)) return;
     state.ownerPresence = 'online';
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
-    open.forEach(t => { t.notifiedAt = Date.now(); });
-    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Open Reminder: ' + open.length + '\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\n') + '\n\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
+    const visible = open.filter(t => !t.snoozedUntil || t.snoozedUntil <= Date.now());
+    visible.forEach(t => { t.notifiedAt = Date.now(); });
+    const summary = visible.slice(0, 15).map(t => t.id + ' [' + (t.priority || 'NORMAL') + ']' + (t.dueAt ? ' • ' + new Date(t.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' }) : '') + ' — ' + t.senderName + ': ' + t.title).join('\n');
+    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Due / Ready Reminder: ' + visible.length + ' / ' + open.length + '\n' + (summary || 'এখন কোনো Ready Reminder নেই।') + '\n\n/tasks দিয়ে সব দেখুন • /done TK-201');
     sendMenu(m.chat.id);
   });
   tgBot.onText(/\/offline$/i, m => {
@@ -634,7 +636,8 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/tasks$/i, m => {
     if (!isOwner(m.chat.id)) return;
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
-    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\n' + t.title).join('\n\n') + '\n\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
+    const formatTask = t => t.id + ' [' + (t.priority || 'NORMAL') + ']' + (t.dueAt ? ' • Due ' + new Date(t.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' }) : '') + (t.snoozedUntil && t.snoozedUntil > Date.now() ? ' • Snoozed' : '') + '\n' + t.senderName + ': ' + t.title;
+    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(formatTask).join('\n\n') + '\n\n/done TK-201 • /snooze TK-201 1d • /delete_task TK-201' : '✅ কোনো Open Reminder নেই 🙂');
   });
   tgBot.onText(/\/done\s+(TK-\d+)/i, (m, match) => {
     if (!isOwner(m.chat.id)) return;
