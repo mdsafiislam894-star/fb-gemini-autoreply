@@ -7,7 +7,8 @@ const {
   buildRelayAcknowledgement,
   canSendWifeProactive,
   makeProactiveSchedule,
-  isProactiveScheduleValid
+  isProactiveScheduleValid,
+  isTaskReminderDue
 } = require('../assistant-engine');
 
 const NOW = Date.parse('2026-11-20T03:00:00.000Z'); // 09:00 Asia/Dhaka
@@ -77,4 +78,17 @@ test('interprets Bangla night time as 24-hour local time', () => {
 
 test('recognizes direct call-back requests as owner relay tasks', () => {
   assert.equal(classifyRelayIntent('Call me tomorrow please', NOW).isRelay, true);
+});
+
+test('due reminder respects snooze, sent state, and retry backoff', () => {
+  const task = { status: 'OPEN', dueAt: NOW - 1000, reminderDelivery: { status: 'PENDING', nextAttemptAt: NOW - 1000 } };
+  assert.equal(isTaskReminderDue(task, NOW), true);
+  task.snoozedUntil = NOW + 60_000;
+  assert.equal(isTaskReminderDue(task, NOW), false);
+  task.snoozedUntil = 0;
+  task.reminderDelivery.status = 'SENT';
+  assert.equal(isTaskReminderDue(task, NOW), false);
+  task.reminderDelivery.status = 'PENDING';
+  task.reminderDelivery.nextAttemptAt = NOW + 60_000;
+  assert.equal(isTaskReminderDue(task, NOW), false);
 });
