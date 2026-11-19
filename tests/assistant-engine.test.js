@@ -63,8 +63,8 @@ test('proactive schedule is invalidated by a newer inbound and expires at 24 hou
   const conversation = { lastUserAt: NOW - 1000 };
   const schedule = makeProactiveSchedule(profile, conversation, 'Ektu pore kotha bolbo Sona 💙', NOW);
   assert.ok(schedule);
-  assert.equal(isProactiveScheduleValid(schedule, conversation, profile, NOW + 5000), true);
-  assert.equal(isProactiveScheduleValid(schedule, { lastUserAt: NOW + 1 }, profile, NOW + 5000), false);
+  assert.equal(isProactiveScheduleValid(schedule, conversation, profile, NOW + 11 * 60 * 1000), true);
+  assert.equal(isProactiveScheduleValid(schedule, { lastUserAt: NOW + 1 }, profile, NOW + 11 * 60 * 1000), false);
   assert.equal(isProactiveScheduleValid(schedule, conversation, profile, NOW + 24 * 60 * 60 * 1000), false);
   assert.equal(makeProactiveSchedule({ relationship: 'friend', affectionate: true }, conversation, 'hello', NOW), null);
 });
