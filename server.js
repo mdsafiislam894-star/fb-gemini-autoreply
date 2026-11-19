@@ -272,8 +272,7 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
   if (tgBot && ADMIN_CHAT_ID) {
     const sLines = clean.map((s, i) => `${i + 1}. ${s}`).join('\n');
     const sRow = clean.map((_, i) => ({ text: `✅ #${i + 1}`, callback_data: `sugg:${pid}:${i}` }));
-    tgBot.sendMessage(ADMIN_CHAT_ID, `🚨 *ZEVIAN — ${cls} QUESTION*\n\n🆔 \`${pid}\` | 👤 ${name}\n💬 PSID: \`${psid}\`\n💡 ${reason}\n\n❓ *Message:*\n${q}\n\n✨ *AI Suggestions (1-Tap Send):*\n${sLines}`, {
-      parse_mode: 'Markdown',
+    tgBot.sendMessage(ADMIN_CHAT_ID, `🚨 ZEVIAN — ${cls} QUESTION\n\n🆔 ${pid} | 👤 ${name}\n💬 PSID: ${psid}\n💡 ${reason}\n\n❓ Message:\n${q}\n\n✨ AI Suggestions (1-Tap Send):\n${sLines}`, {
       reply_markup: {
         inline_keyboard: [
           sRow,
@@ -373,7 +372,7 @@ app.post('/webhook', async (req, res) => {
         if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold && ai.suggested_reply) {
           const replyText = withEmoji(ai.suggested_reply, '🙂');
           const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
-          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 *ZEVIAN (${cls})*\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`, { parse_mode: 'Markdown' }).catch(() => {});
+          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
         } else {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
