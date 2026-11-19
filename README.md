@@ -58,7 +58,7 @@ cp .env.example .env
 npm start
 ```
 
-No `.env.example` is included yet; configure the variables listed above in your local environment.
+A safe `.env.example` template is included. Replace the blank values locally and keep the real `.env` file untracked.
 
 ## Security changes in v4.6
 
