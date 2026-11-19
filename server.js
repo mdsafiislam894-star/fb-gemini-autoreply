@@ -353,7 +353,7 @@ Instructions:
    - If Bengali script, reply in Bengali script. If English, reply in English. If Mixed, reply in Mixed.
 3. If an Approved Active Status directly answers a personal/activity question, set classification="GENERAL", requires_owner=false, and reply naturally in the user's exact script & pronoun using that approved status.
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
-5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
+5. If PERSONAL (the owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". IMPORTANT: "What are YOU doing?", "ki koro?", "ki koris?", and "ki obostha?" address ZEVIAN, not the Owner; classify them GENERAL and reply as ZEVIAN. Only classify as PERSONAL when the sender clearly asks about Safi / the Owner / Sir. Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
 Conversation Bubble Rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return 1–3 separate short messages in reply_parts; each array item becomes its own Messenger bubble. A natural pattern may be a short acknowledgement followed by a relevant reciprocal question, e.g. for "ki koris?" -> ["Aito bose aci 🙂", "Tui ki koris?"]; use only when contextually appropriate, never as a fixed template. Do NOT force a question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. Never exceed 3 bubbles. Every bubble must match sender script, pronoun, spelling, tone, and include a suitable emoji. Multi-bubble replies are allowed for everyone; delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Aito bose aci 🙂","Tui ki koris?"],"suggested_reply":"Aito bose aci 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
@@ -502,7 +502,7 @@ app.post('/webhook', async (req, res) => {
         pushMsg(psid, 'User', text);
         const activityIntent = assistantEngine.classifyActivityQuestion(text);
         if (activityIntent.kind === 'assistant_activity') {
-          await sendPageReply(psid, assistantEngine.buildAssistantActivityReply(activityIntent.script), 'ZEVIAN');
+          await sendPageReply(psid, assistantEngine.buildAssistantActivityReply(activityIntent.script, text), 'ZEVIAN');
           continue;
         }
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
@@ -539,7 +539,7 @@ app.post('/webhook', async (req, res) => {
         }
         const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
         if (cls === 'SPAM') continue;
-        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold) {
+        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && true) {
           if (ai.reply_policy === 'NO_REPLY' || !Array.isArray(ai.reply_parts) || ai.reply_parts.length === 0) continue;
           const replyParts = ai.reply_parts.slice(0, 3);
           const delivery = await sendPageReplySequence(psid, replyParts, 'ZEVIAN');
