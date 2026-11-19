@@ -585,19 +585,19 @@ if (BOT_TOKEN) {
     state.ownerPresence = 'online';
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
     open.forEach(t => { t.notifiedAt = Date.now(); });
-    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\\n\\n📌 Open Reminder: ' + open.length + '\\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\\n') + '\\n\\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
+    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Open Reminder: ' + open.length + '\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\n') + '\n\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
     sendMenu(m.chat.id);
   });
   tgBot.onText(/\/offline$/i, m => {
     if (!isOwner(m.chat.id)) return;
     state.ownerPresence = 'offline';
-    tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
+    tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
     sendMenu(m.chat.id);
   });
   tgBot.onText(/\/tasks$/i, m => {
     if (!isOwner(m.chat.id)) return;
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
-    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\\n\\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\\n' + t.title).join('\\n\\n') + '\\n\\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
+    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\n' + t.title).join('\n\n') + '\n\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
   });
   tgBot.onText(/\/done\s+(TK-\d+)/i, (m, match) => {
     if (!isOwner(m.chat.id)) return;
@@ -620,7 +620,7 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/tags$/i, m => {
     if (!isOwner(m.chat.id)) return;
     const entries = Object.entries(state.contactProfiles);
-    tgBot.sendMessage(m.chat.id, entries.length ? '🏷️ Tagged Contacts\\n\\n' + entries.map(([id,p]) => id + ' — ' + p.label).join('\\n') : 'এখনো কোনো কন্টাক্ট ট্যাগ করা হয়নি।');
+    tgBot.sendMessage(m.chat.id, entries.length ? '🏷️ Tagged Contacts\n\n' + entries.map(([id,p]) => id + ' — ' + p.label).join('\n') : 'এখনো কোনো কন্টাক্ট ট্যাগ করা হয়নি।');
   });
   tgBot.onText(/\/analytics/, m => isOwner(m.chat.id) && tgBot.sendMessage(m.chat.id, `📊 *ZEVIAN Analytics*\n• Incoming: ${state.stats.totalIn}\n• Outgoing: ${state.stats.totalOut}\n• Auto-Replied (AI): ${state.stats.autoReplied}\n• Escalated to Owner: ${state.stats.escalated}\n• Owner Replies: ${state.stats.ownerReplied}\n• Failed: ${state.stats.failed}`, { parse_mode: 'Markdown' }));
   tgBot.onText(/\/mystatus/, m => { if (!isOwner(m.chat.id)) return; const l = getActiveStatuses(); tgBot.sendMessage(m.chat.id, l.length ? `📍 *Active Shareable Statuses:*\n` + l.map(s => `• \`${s.id}\`: ${s.text} (${s.expiresLabel})`).join('\n') : '📍 কোনো Active Status নেই। সেট করতে লিখুন: `/setstatus আমি বাইরে যাচ্ছি`', { parse_mode: 'Markdown' }); });
