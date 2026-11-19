@@ -520,6 +520,8 @@ if (BOT_TOKEN) {
     { command: 'online', description: 'Owner online presence চালু করুন' },
     { command: 'offline', description: 'Owner offline presence চালু করুন' },
     { command: 'tasks', description: 'Owner reminder ও task দেখুন' },
+    { command: 'snooze', description: 'Reminder পরে দেখানোর জন্য Snooze করুন' },
+    { command: 'delete_task', description: 'একটি Reminder archive করুন' },
     { command: 'done', description: 'একটি task সম্পন্ন করুন' },
     { command: 'tag', description: 'কন্টাক্টের সম্পর্ক ও tone tag করুন' },
     { command: 'untag', description: 'কন্টাক্টের custom tag সরান' },
@@ -568,6 +570,7 @@ if (BOT_TOKEN) {
       `• /online — আপনি অনলাইনে; ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠাবে\n` +
       `• /offline — আপনি অনলাইনে নেই; ZEVIAN নিজে সামলাবে\n` +
       `• /tasks — Reminders দেখুন; /done TK-201 দিয়ে সম্পন্ন করুন\n` +
+      `• /snooze TK-201 1d — পরে দেখান; /delete_task TK-201 — archive\n` +
       `• /tag PSID wife — কন্টাক্টকে Wife/Partner হিসেবে ট্যাগ করুন\n` +
       `• /untag PSID — কাস্টম সম্পর্ক সরান; /tags — ট্যাগ লিস্ট\n` +
       `• /testgemini — Gemini AI ও Banglish Mirror মোড টেস্ট করুন\n\n` +
@@ -612,6 +615,21 @@ if (BOT_TOKEN) {
     state.ownerPresence = 'offline';
     tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
     sendMenu(m.chat.id);
+  });
+  tgBot.onText(/\\/snooze\\s+(TK-\\d+)\\s+(1h|3h|6h|1d|2d)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase() && t.status === 'OPEN');
+    if (!task) return tgBot.sendMessage(m.chat.id, 'Open Task পাওয়া যায়নি।');
+    const duration = { '1h': 3600000, '3h': 10800000, '6h': 21600000, '1d': 86400000, '2d': 172800000 }[match[2].toLowerCase()];
+    task.snoozedUntil = Date.now() + duration;
+    tgBot.sendMessage(m.chat.id, '⏰ ' + task.id + ' Snooze করা হয়েছে: ' + match[2]);
+  });
+  tgBot.onText(/\\/delete_task\\s+(TK-\\d+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase());
+    if (!task) return tgBot.sendMessage(m.chat.id, 'Task ID পাওয়া যায়নি।');
+    task.status = 'DELETED'; task.deletedAt = Date.now();
+    tgBot.sendMessage(m.chat.id, '🗑️ ' + task.id + ' archive করা হয়েছে।');
   });
   tgBot.onText(/\/tasks$/i, m => {
     if (!isOwner(m.chat.id)) return;
