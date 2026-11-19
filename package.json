@@ -5,8 +5,7 @@
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=18.0.0" },
   "dependencies": {
-    "@google/genai": "^0.1.2",
-    "@tas33n/ws3-fca": "^1.0.5",
+    "@google/genai": "latest",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
