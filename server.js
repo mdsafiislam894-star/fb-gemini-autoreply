@@ -57,7 +57,7 @@ function getContactProfile(psid) {
 
 function isTaskIntent(text) {
   const t = String(text || '').toLowerCase();
-  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|বলবে|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|অনলাইনে আসলে|স্যার ডাকছে|সাফিকে বল|সাফি কে বল|safi ke bolo|safi online|phone dite bol)/i.test(t);
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|বলবে|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
 }
 
 function addOwnerTask(psid, senderName, message) {
@@ -139,7 +139,7 @@ function fallbackUserReply(script, ownerNotified) {
 
 function isPersonalQuestion(text) {
   const t = String(text || '').toLowerCase();
-  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis)\b/i.test(t);
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kothay chili|koi chili|koi chilis|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis|khaicis)\b/i.test(t);
 }
 function statusMayAnswerQuestion(text) {
   const q = String(text || '').toLowerCase();
