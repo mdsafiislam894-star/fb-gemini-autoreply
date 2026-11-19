@@ -34,7 +34,7 @@ function parseClockTime(text) {
 function localDhakaToUtc(date, hour, minute) { return Date.UTC(date.year, date.month - 1, date.day, hour, minute) - DHAKA_OFFSET_MINUTES * 60000; }
 function classifyRelayIntent(message, now = Date.now()) {
   const original = String(message || '').trim(), t = toLatinDigits(original).toLowerCase();
-  const relay = /(বলে\s*দিও|বলে\s*দিবি|জানিয়ে\s*দিও|জানিয়ে\s*দিও|মনে\s*করিয়ে\s*দিও|মনে\s*করিয়ে\s*দিও|সাফি\s*কে\s*বল|সাফিকে\s*বল|বলবে\s*সাফিকে|tell\s+safi|tell\s+him|let\s+safi\s+know|remind\s+safi|safi\s+ke\s+bolo|safi\s+ke\s+bole\s+dio|safire\s+bole\s+dibi|safike\s+bol|safire\s+bol|bole\s+dibi|bol\s+dibi|janai\s+dio|mone\s+koriye\s+dio)/i.test(t);
+  const relay = /(বলে\s*দিও|বলে\s*দিবি|জানিয়ে\s*দিও|জানিয়ে\s*দিও|মনে\s*করিয়ে\s*দিও|মনে\s*করিয়ে\s*দিও|সাফি\s*কে\s*বল|সাফিকে\s*বল|বলবে\s*সাফিকে|tell\s+safi|tell\s+him|call\s+me|আমাকে\s*ফোন|আমায়\s*ফোন|আমায়\s*ফোন|let\s+safi\s+know|remind\s+safi|safi\s+ke\s+bolo|safi\s+ke\s+bole\s+dio|safire\s+bole\s+dibi|safike\s+bol|safire\s+bol|bole\s+dibi|bol\s+dibi|janai\s+dio|mone\s+koriye\s+dio)/i.test(t);
   const contextualRelay = /(সাফি|safi).{0,45}(স্যার|sir|কলেজ|college|ফোন|call|যেতে|jaite|jabe|jabi)/i.test(t) && /(বলে|বল|জান|tell|bole|bol|jan|dibi|dio)/i.test(t);
   const isRelay = relay || contextualRelay;
   if (!isRelay) return { isRelay: false, title: '', dueDate: null, dueAt: null, timeSpecified: false, dueTimeSource: null, priority: 'NORMAL' };
