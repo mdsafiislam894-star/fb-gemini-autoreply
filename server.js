@@ -580,6 +580,48 @@ if (BOT_TOKEN) {
 
   tgBot.onText(/\/(start|panel|status)$/, m => isOwner(m.chat.id) && sendMenu(m.chat.id));
   tgBot.onText(/\/help/i, m => isOwner(m.chat.id) && sendHelp(m.chat.id));
+  tgBot.onText(/\\/online$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    state.ownerPresence = 'online';
+    const open = state.ownerTasks.filter(t => t.status === 'OPEN');
+    open.forEach(t => { t.notifiedAt = Date.now(); });
+    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\\n\\n📌 Open Reminder: ' + open.length + '\\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\\n') + '\\n\\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
+    sendMenu(m.chat.id);
+  });
+  tgBot.onText(/\\/offline$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    state.ownerPresence = 'offline';
+    tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
+    sendMenu(m.chat.id);
+  });
+  tgBot.onText(/\\/tasks$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    const open = state.ownerTasks.filter(t => t.status === 'OPEN');
+    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\\n\\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\\n' + t.title).join('\\n\\n') + '\\n\\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
+  });
+  tgBot.onText(/\\/done\\s+(TK-\\d+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase());
+    if (!task) return tgBot.sendMessage(m.chat.id, 'এই Task ID পাওয়া যায়নি।');
+    task.status = 'DONE'; task.completedAt = Date.now();
+    tgBot.sendMessage(m.chat.id, '✅ ' + task.id + ' সম্পন্ন হিসেবে চিহ্নিত হয়েছে।');
+  });
+  tgBot.onText(/\\/tag\\s+(\\S+)\\s+([\\s\\S]+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const psid = match[1].trim(), raw = match[2].trim(), wife = /^(wife|bou|বউ|স্ত্রী|partner|জান)$/i.test(raw);
+    state.contactProfiles[psid] = { ...getContactProfile(psid), label: wife ? 'Wife / Partner' : raw.slice(0, 40), relationship: wife ? 'wife' : 'custom', affectionate: wife };
+    tgBot.sendMessage(m.chat.id, wife ? '💗 কন্টাক্টটি Wife/Partner হিসেবে ট্যাগ করা হয়েছে। ZEVIAN স্বাভাবিক affectionate tone ব্যবহার করবে; Owner-এর ব্যক্তিগত তথ্য বানিয়ে বলবে না।' : '🏷️ কন্টাক্ট ট্যাগ করা হয়েছে: ' + raw);
+  });
+  tgBot.onText(/\\/untag\\s+(\\S+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    delete state.contactProfiles[match[1].trim()];
+    tgBot.sendMessage(m.chat.id, '🏷️ কাস্টম সম্পর্ক/টোন সরানো হয়েছে।');
+  });
+  tgBot.onText(/\\/tags$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    const entries = Object.entries(state.contactProfiles);
+    tgBot.sendMessage(m.chat.id, entries.length ? '🏷️ Tagged Contacts\\n\\n' + entries.map(([id,p]) => id + ' — ' + p.label).join('\\n') : 'এখনো কোনো কন্টাক্ট ট্যাগ করা হয়নি।');
+  });
   tgBot.onText(/\/analytics/, m => isOwner(m.chat.id) && tgBot.sendMessage(m.chat.id, `📊 *ZEVIAN Analytics*\n• Incoming: ${state.stats.totalIn}\n• Outgoing: ${state.stats.totalOut}\n• Auto-Replied (AI): ${state.stats.autoReplied}\n• Escalated to Owner: ${state.stats.escalated}\n• Owner Replies: ${state.stats.ownerReplied}\n• Failed: ${state.stats.failed}`, { parse_mode: 'Markdown' }));
   tgBot.onText(/\/mystatus/, m => { if (!isOwner(m.chat.id)) return; const l = getActiveStatuses(); tgBot.sendMessage(m.chat.id, l.length ? `📍 *Active Shareable Statuses:*\n` + l.map(s => `• \`${s.id}\`: ${s.text} (${s.expiresLabel})`).join('\n') : '📍 কোনো Active Status নেই। সেট করতে লিখুন: `/setstatus আমি বাইরে যাচ্ছি`', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/clearstatus/, m => { if (!isOwner(m.chat.id)) return; state.ownerStatuses.forEach(s => { s.active = false; }); tgBot.sendMessage(m.chat.id, '🛑 সব Active Status বন্ধ করা হয়েছে।'); });
