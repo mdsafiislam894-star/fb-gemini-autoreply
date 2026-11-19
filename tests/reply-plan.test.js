@@ -3,12 +3,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeReplyPlan, shouldSkipReplyForDuplicate } = require('../reply-plan');
 
-test('keeps separate ordered message bubbles', () => {
-  assert.deepEqual(normalizeReplyPlan({ reply_policy: 'SEND', reply_parts: ['Aito bose aci 🙂', 'Tui ki koris?'] }), { policy: 'SEND', parts: ['Aito bose aci 🙂', 'Tui ki koris?'] });
+test('sends only one reply even when the model proposes multiple bubbles', () => {
+  assert.deepEqual(normalizeReplyPlan({ reply_policy: 'SEND', reply_parts: ['Aito bose aci 🙂', 'Tui ki koris?'] }), { policy: 'SEND', parts: ['Aito bose aci 🙂'] });
 });
-test('supports one or up to three distinct messages', () => {
+test('limits every incoming message to a single outgoing reply', () => {
   assert.equal(normalizeReplyPlan({ reply_parts: ['One'] }).parts.length, 1);
-  assert.equal(normalizeReplyPlan({ reply_parts: ['One', 'Two', 'Three', 'Four'] }).parts.length, 3);
+  assert.equal(normalizeReplyPlan({ reply_parts: ['One', 'Two', 'Three', 'Four'] }).parts.length, 1);
 });
 test('honors explicit no-reply policy', () => {
   assert.deepEqual(normalizeReplyPlan({ reply_policy: 'NO_REPLY', reply_parts: ['do not send'] }), { policy: 'NO_REPLY', parts: [] });
