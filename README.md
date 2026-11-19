@@ -100,3 +100,30 @@ The `/health` response reports `geminiStatus` as `not_tested`, `ready`, or `erro
 
 ### Important persistence limitation
 Presence, reminders, relationship tags, conversations, and pending replies are currently in process memory. They are lost on a Render restart/redeploy. Durable storage is a separate required upgrade before relying on reminders as the only copy of important information.
+
+
+## ZEVIAN v4.9 — Encrypted persistent memory
+
+### What is persisted
+When PostgreSQL is configured, ZEVIAN stores the complete application state snapshot, including owner presence, reminders/tasks, contact relationship profiles, active statuses, pending replies, conversations, FAQ/knowledge base, block list, and counters. State is restored before Telegram polling and the HTTP server start.
+
+### Required environment variables for durable mode
+- `DATABASE_URL`: PostgreSQL connection URL.
+- `STATE_ENCRYPTION_KEY`: a long random secret used to derive the AES-256-GCM encryption key.
+- `DATABASE_SSL`: set to `true` only if the database provider requires TLS.
+
+Generate the encryption secret locally with `openssl rand -base64 48`. Put both values in Render → ZEVIAN service → Environment. Never send them in chat or commit them to GitHub. Back up the encryption key securely: losing it makes existing encrypted snapshots unreadable.
+
+The application creates `zevian_state` automatically. The matching SQL migration is in `migrations/001_encrypted_state.sql`. State snapshots are encrypted before they are written to PostgreSQL. The service flushes changes periodically and again during graceful shutdown.
+
+### Persistence health
+`GET /health` now includes a `persistence` object with enabled/connected/encrypted/lastSavedAt/error fields. If `DATABASE_URL` or `STATE_ENCRYPTION_KEY` is missing, the service explicitly remains in memory-only mode; do not rely on reminders or saved profiles until `enabled=true` and `connected=true`.
+
+### Database cost and retention warning
+Do not use a temporary database for important personal reminders. Render's Free Postgres database expires 30 days after creation, has no backups, and is intended for testing rather than production. Use a durable PostgreSQL plan/provider and keep independent backups. See [Render free instance limitations](https://render.com/docs/free).
+
+### Reminder upgrades
+- Tasks capture source sender/message, priority, inferred due time for common Bangla/Banglish/English date phrases, and completion/snooze/archive metadata.
+- `/snooze TK-201 1h`, `/snooze TK-201 1d` postpone reminders.
+- `/delete_task TK-201` archives a task without deleting its audit context.
+- `/done TK-201` marks a task complete.

@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
+const persistence = require('./persistence');
 
 const app = express();
 app.use(cors());
@@ -34,6 +35,7 @@ const state = {
   ownerTasks: [],
   contactProfiles: {},
   taskCounter: 200,
+  taskSequence: 0,
   kbItems: [
     { id: 'kb-1', question: 'ZEVIAN কী?', answer: 'ZEVIAN হলো এই ফেসবুক পেজের এআই পার্সোনাল মেসেঞ্জার অ্যাসিস্ট্যান্ট, যে স্বাভাবিকভাবে কথা বলে এবং ব্যক্তিগত প্রশ্নগুলো সরাসরি Owner-এর কাছে পৌঁছে দেয়।' }
   ],
@@ -57,7 +59,24 @@ function getContactProfile(psid) {
 
 function isTaskIntent(text) {
   const t = String(text || '').toLowerCase();
-  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol|কালকে.{0,20}(কলেজ|স্যার|যাবি|যাবে)|আগামীকাল.{0,20}(কলেজ|স্যার|যাবি|যাবে)|tomorrow.{0,30}(college|sir|teacher)|kalke.{0,30}(college|sir|teacher))/i.test(t);
+}
+
+function inferTaskDueAt(message) {
+  const t = String(message || '').toLowerCase();
+  const now = Date.now();
+  if (/(আজকে|আজ|today|ajke)/i.test(t)) return now + 60 * 60 * 1000;
+  if (/(কালকে|আগামীকাল|কাল|tomorrow|kalke|kal)/i.test(t)) return now + 24 * 60 * 60 * 1000;
+  if (/(পরশু|day after tomorrow|porshu)/i.test(t)) return now + 48 * 60 * 60 * 1000;
+  if (/(আগামী সপ্তাহ|next week)/i.test(t)) return now + 7 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function inferTaskPriority(message) {
+  const t = String(message || '').toLowerCase();
+  if (/(জরুরি|জরুরী|urgent|asap|এখনই|এক্ষুনি|emergency)/i.test(t)) return 'URGENT';
+  if (/(স্যার|sir|কলেজ|college|ফোন|call|মনে কর|remind|অনলাইনে আসলে)/i.test(t)) return 'HIGH';
+  return 'NORMAL';
 }
 
 function addOwnerTask(psid, senderName, message) {
@@ -68,7 +87,7 @@ function addOwnerTask(psid, senderName, message) {
     id: 'TK-' + state.taskCounter,
     psid, senderName, sourceMessage: String(message).slice(0, 1000),
     title: String(message).slice(0, 180),
-    status: 'OPEN', createdAt: Date.now(), notifiedAt: null
+    status: 'OPEN', priority: inferTaskPriority(message), dueAt: inferTaskDueAt(message), createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
   };
   state.ownerTasks.unshift(task);
   if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
@@ -492,7 +511,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 if (BOT_TOKEN) {
-  tgBot = new TelegramBot(BOT_TOKEN, { polling: true });
+  tgBot = new TelegramBot(BOT_TOKEN, { polling: false });
 
   // Register native Telegram Slash Command Menu automatically!
   tgBot.setMyCommands([
@@ -501,6 +520,8 @@ if (BOT_TOKEN) {
     { command: 'online', description: 'Owner online presence চালু করুন' },
     { command: 'offline', description: 'Owner offline presence চালু করুন' },
     { command: 'tasks', description: 'Owner reminder ও task দেখুন' },
+    { command: 'snooze', description: 'Reminder পরে দেখানোর জন্য Snooze করুন' },
+    { command: 'delete_task', description: 'একটি Reminder archive করুন' },
     { command: 'done', description: 'একটি task সম্পন্ন করুন' },
     { command: 'tag', description: 'কন্টাক্টের সম্পর্ক ও tone tag করুন' },
     { command: 'untag', description: 'কন্টাক্টের custom tag সরান' },
@@ -549,6 +570,7 @@ if (BOT_TOKEN) {
       `• /online — আপনি অনলাইনে; ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠাবে\n` +
       `• /offline — আপনি অনলাইনে নেই; ZEVIAN নিজে সামলাবে\n` +
       `• /tasks — Reminders দেখুন; /done TK-201 দিয়ে সম্পন্ন করুন\n` +
+      `• /snooze TK-201 1d — পরে দেখান; /delete_task TK-201 — archive\n` +
       `• /tag PSID wife — কন্টাক্টকে Wife/Partner হিসেবে ট্যাগ করুন\n` +
       `• /untag PSID — কাস্টম সম্পর্ক সরান; /tags — ট্যাগ লিস্ট\n` +
       `• /testgemini — Gemini AI ও Banglish Mirror মোড টেস্ট করুন\n\n` +
@@ -584,8 +606,10 @@ if (BOT_TOKEN) {
     if (!isOwner(m.chat.id)) return;
     state.ownerPresence = 'online';
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
-    open.forEach(t => { t.notifiedAt = Date.now(); });
-    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Open Reminder: ' + open.length + '\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\n') + '\n\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
+    const visible = open.filter(t => !t.snoozedUntil || t.snoozedUntil <= Date.now());
+    visible.forEach(t => { t.notifiedAt = Date.now(); });
+    const summary = visible.slice(0, 15).map(t => t.id + ' [' + (t.priority || 'NORMAL') + ']' + (t.dueAt ? ' • ' + new Date(t.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' }) : '') + ' — ' + t.senderName + ': ' + t.title).join('\n');
+    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Due / Ready Reminder: ' + visible.length + ' / ' + open.length + '\n' + (summary || 'এখন কোনো Ready Reminder নেই।') + '\n\n/tasks দিয়ে সব দেখুন • /done TK-201');
     sendMenu(m.chat.id);
   });
   tgBot.onText(/\/offline$/i, m => {
@@ -594,10 +618,26 @@ if (BOT_TOKEN) {
     tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
     sendMenu(m.chat.id);
   });
+  tgBot.onText(/\/snooze\s+(TK-\d+)\s+(1h|3h|6h|1d|2d)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase() && t.status === 'OPEN');
+    if (!task) return tgBot.sendMessage(m.chat.id, 'Open Task পাওয়া যায়নি।');
+    const duration = { '1h': 3600000, '3h': 10800000, '6h': 21600000, '1d': 86400000, '2d': 172800000 }[match[2].toLowerCase()];
+    task.snoozedUntil = Date.now() + duration;
+    tgBot.sendMessage(m.chat.id, '⏰ ' + task.id + ' Snooze করা হয়েছে: ' + match[2]);
+  });
+  tgBot.onText(/\/delete_task\s+(TK-\d+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase());
+    if (!task) return tgBot.sendMessage(m.chat.id, 'Task ID পাওয়া যায়নি।');
+    task.status = 'DELETED'; task.deletedAt = Date.now();
+    tgBot.sendMessage(m.chat.id, '🗑️ ' + task.id + ' archive করা হয়েছে।');
+  });
   tgBot.onText(/\/tasks$/i, m => {
     if (!isOwner(m.chat.id)) return;
     const open = state.ownerTasks.filter(t => t.status === 'OPEN');
-    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\n' + t.title).join('\n\n') + '\n\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
+    const formatTask = t => t.id + ' [' + (t.priority || 'NORMAL') + ']' + (t.dueAt ? ' • Due ' + new Date(t.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' }) : '') + (t.snoozedUntil && t.snoozedUntil > Date.now() ? ' • Snoozed' : '') + '\n' + t.senderName + ': ' + t.title;
+    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(formatTask).join('\n\n') + '\n\n/done TK-201 • /snooze TK-201 1d • /delete_task TK-201' : '✅ কোনো Open Reminder নেই 🙂');
   });
   tgBot.onText(/\/done\s+(TK-\d+)/i, (m, match) => {
     if (!isOwner(m.chat.id)) return;
@@ -675,8 +715,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.8.0', mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.8 Presence, Reminders & Relationship Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.9.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.9 Persistent Memory Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -687,4 +727,35 @@ const missingRequired = [
 if (missingRequired.length) {
   console.error('ZEVIAN security configuration missing:', missingRequired.join(', '));
 }
-app.listen(PORT, () => console.log('ZEVIAN v4.8 Presence & Relationship Engine running on port', PORT));
+async function bootstrap() {
+  try {
+    const connected = await persistence.init();
+    if (connected) {
+      const saved = await persistence.load();
+      if (saved && typeof saved === 'object') {
+        for (const key of Object.keys(state)) {
+          if (Object.prototype.hasOwnProperty.call(saved, key)) state[key] = saved[key];
+        }
+        console.log('[persistence] Encrypted owner state restored from PostgreSQL');
+      } else {
+        console.log('[persistence] New encrypted state store initialized');
+        await persistence.save(state);
+      }
+    }
+  } catch (error) {
+    console.error('[persistence] Initialization failed; running in memory-only mode:', error.message);
+  }
+  if (tgBot) {
+    try { await tgBot.startPolling(); }
+    catch (error) { console.error('[telegram] Polling start failed:', error.message); }
+  }
+  setInterval(() => { persistence.save(state); }, 1500).unref();
+  app.listen(PORT, () => console.log('ZEVIAN v4.9 Persistent Memory Engine running on port', PORT));
+}
+process.on('SIGTERM', async () => {
+  try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
+});
+process.on('SIGINT', async () => {
+  try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
+});
+bootstrap();

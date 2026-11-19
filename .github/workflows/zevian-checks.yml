@@ -1,0 +1,21 @@
+name: ZEVIAN checks
+
+on:
+  push:
+    branches: [main, "zevian/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install --ignore-scripts
+      - run: node --check server.js
+      - run: node --check persistence.js
+      - run: npm test
