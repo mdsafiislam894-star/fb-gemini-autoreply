@@ -270,7 +270,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
 function escalate(psid, name, q, cls, reason, suggs = []) {
   state.pendingCounter += 1; state.stats.escalated += 1;
   const pid = `PR-${state.pendingCounter}`;
-  const clean = Array.isArray(suggs) && suggs.length ? suggs.slice(0, 4) : ['হ্যাঁ, ঠিক আছে।', 'না, এখন না।', 'একটু পরে জানাচ্ছি।'];
+  const clean = (Array.isArray(suggs) && suggs.length ? suggs.slice(0, 4) : fallbackSuggestions(getConv(psid).prefs.script)).map(v => withEmoji(v, '🙂'));
   state.pendingReplies[pid] = { id: pid, psid, senderName: name, question: q, classification: cls, reason, suggestions: clean, status: 'WAITING' };
   if (tgBot && ADMIN_CHAT_ID) {
     const sLines = clean.map((s, i) => `${i + 1}. ${s}`).join('\n');
@@ -289,10 +289,22 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
 }
 
 async function sendOwnerReply(psid, text, pid = null) {
-  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text } });
+  const safeText = withEmoji(text, '🙂');
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
   if (res && res.message_id) {
-    pushMsg(psid, 'Owner', text); state.stats.ownerReplied += 1;
-    if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = text; }
+    pushMsg(psid, 'Owner', safeText); state.stats.ownerReplied += 1;
+    if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = safeText; }
+    return true;
+  }
+  return false;
+}
+
+async function sendPageReply(psid, text, role = 'ZEVIAN') {
+  const safeText = withEmoji(text, '🙂');
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
+  if (res && res.message_id) {
+    pushMsg(psid, role, safeText);
+    if (role === 'ZEVIAN') state.stats.autoReplied += 1;
     return true;
   }
   return false;
@@ -328,10 +340,11 @@ app.post('/webhook', async (req, res) => {
 
         if (!ev.message?.text && ev.message?.attachments?.length) {
           const att = ev.message.attachments[0];
-          if (att.type === 'image' && ev.message.sticker_id) {
-            await callGraph('me/messages', { recipient: { id: psid }, message: { text: '😊' } });
+          if (ev.message.sticker_id) {
+            await sendPageReply(psid, '😊', 'ZEVIAN');
           } else {
-            escalate(psid, name, `[${att.type.toUpperCase()}] ${att.payload?.url || ''}`, 'UNCERTAIN', `User sent ${att.type} media`, ['দেখলাম, ধন্যবাদ!', 'একটু পরে দেখে/শুনে জানাচ্ছি।']);
+            await sendPageReply(psid, conv.prefs.script === 'English' ? 'I received your attachment. I will review it and get back to you 🙂' : 'তোমার পাঠানো ফাইল/ছবি পেয়েছি। দেখে জানাচ্ছি 🙂', 'ZEVIAN');
+            escalate(psid, name, `[${String(att.type || 'file').toUpperCase()} attachment received]`, 'UNCERTAIN', `User sent ${att.type || 'file'} media`, fallbackSuggestions(conv.prefs.script));
           }
           continue;
         }
@@ -339,32 +352,39 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        const ai = await analyzeMessage(psid, text);
-        const low = text.toLowerCase();
-        if (PERSONAL_CUES.some(c => low.includes(c)) && getActiveStatuses().length === 0) {
-          const holdMsg = conv.prefs.script.includes('Banglish')
-            ? 'Ei proshnotar uttor amar Owner dite parben. Ektu wait koro 🙂'
+        // Deterministic owner-privacy gate runs BEFORE Gemini to prevent accidental personal answers.
+        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text)) {
+          const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
+            ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
             : conv.prefs.script === 'English'
-            ? 'Only my Owner can answer this. Please wait a moment 🙂'
-            : 'এই প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
-          await callGraph('me/messages', { recipient: { id: psid }, message: { text: holdMsg } });
-          escalate(psid, name, text, 'PERSONAL', 'Personal question (no active status)', ai ? ai.owner_suggestions : []);
+            ? 'Only my Owner can answer this personal question. Please wait a moment 🙂'
+            : 'এই ব্যক্তিগত প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
+          await sendPageReply(psid, holdMsg, 'ZEVIAN');
+          escalate(psid, name, text, 'PERSONAL', 'Personal question; no directly relevant approved status', fallbackSuggestions(conv.prefs.script));
           continue;
         }
-        if (!ai) { escalate(psid, name, text, 'UNCERTAIN', `Gemini error: ${lastGeminiError}`); continue; }
+
+        const ai = await analyzeMessage(psid, text);
+        if (!ai) {
+          const ownerNotified = Boolean(tgBot && ADMIN_CHAT_ID);
+          await sendPageReply(psid, fallbackUserReply(conv.prefs.script, ownerNotified), 'ZEVIAN');
+          escalate(psid, name, text, 'UNCERTAIN', `Gemini unavailable: ${lastGeminiError || 'all model attempts failed'}`, fallbackSuggestions(conv.prefs.script));
+          continue;
+        }
         const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
         if (cls === 'SPAM') continue;
         if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold && ai.suggested_reply) {
-          const rep = ai.suggested_reply.trim();
-          await callGraph('me/messages', { recipient: { id: psid }, message: { text: rep } });
-          pushMsg(psid, 'ZEVIAN', rep); state.stats.autoReplied += 1;
-          if (tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 *ZEVIAN (${cls})*\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${rep}`, { parse_mode: 'Markdown' }).catch(() => {});
+          const replyText = withEmoji(ai.suggested_reply, '🙂');
+          const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
+          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 *ZEVIAN (${cls})*\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`, { parse_mode: 'Markdown' }).catch(() => {});
         } else {
-          if (cls === 'PERSONAL') {
-            const holdMsg = conv.prefs.script.includes('Banglish') ? 'Ei proshnotar uttor amar Owner dite parben. Ektu wait koro 🙂' : 'এই প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
-            await callGraph('me/messages', { recipient: { id: psid }, message: { text: holdMsg } });
-          }
-          escalate(psid, name, text, cls, ai.reason || 'Owner approval needed', ai.owner_suggestions || []);
+          const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
+            ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
+            : conv.prefs.script === 'English'
+            ? 'I will check this with my Owner and get back to you 🙂'
+            : 'বিষয়টি আমার Owner-এর সঙ্গে নিশ্চিত করে জানাচ্ছি 🙂';
+          await sendPageReply(psid, holdMsg, 'ZEVIAN');
+          escalate(psid, name, text, cls, ai.reason || 'Owner approval needed', ai.owner_suggestions || fallbackSuggestions(conv.prefs.script));
         }
       }
     }
