@@ -27,7 +27,7 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Context-Aware Emoji: use at most 1 natural emoji for casual/warm messages, 0 emoji for sad/serious/formal messages. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
+    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
   },
   ownerStatuses: [],
   kbItems: [
@@ -47,13 +47,59 @@ const PERSONAL_CUES = [
   'বাসায় আছ', 'বাসায় আছ', 'কখন আসব', 'চিনতে পারছ', 'তুমি কি রাজি', 'kothay ach',
   'phone dibo', 'kalke asb', 'kalke jaba', 'basay ach', 'ki diye kheye', 'khaichis', 'khaicis', 'khaiso'
 ];
+function hasEmoji(text) {
+  return /\p{Extended_Pictographic}/u.test(String(text || ''));
+}
+
+function withEmoji(text, fallback = '🙂') {
+  const clean = String(text || '').trim();
+  return clean ? (hasEmoji(clean) ? clean : clean + ' ' + fallback) : fallback;
+}
+
+function fallbackSuggestions(script) {
+  if (script === 'Banglish (Romanized Bengali)') return ['Hmm, ektu pore janacchi 🙂', 'Ekhon sure na, pore bolbo 🙏', 'Dekhe tomake janacchi 😊'];
+  if (script === 'English') return ['I will let you know shortly 🙂', 'I am not sure yet; I will confirm later 🙏', 'Let me check and get back to you 😊'];
+  if (script === 'Mixed (Bangla+English)') return ['আচ্ছা, ektu পরে জানাচ্ছি 🙂', 'এখন sure না, পরে confirm করব 🙏', 'দেখে তোমাকে জানাচ্ছি 😊'];
+  return ['আচ্ছা, একটু পরে জানাচ্ছি 🙂', 'এখন নিশ্চিত নই, পরে জানাবো 🙏', 'বিষয়টা দেখে তোমাকে জানাচ্ছি 😊'];
+}
+
+function fallbackUserReply(script, ownerNotified) {
+  if (script === 'Banglish (Romanized Bengali)') return ownerNotified ? 'Ektu technical problem hocche. Tomar message-ta owner-er kache pathano hoyeche, tini dekhe janaben 🙂' : 'Ektu technical problem hocche. Doya kore kichukhon por abar message dio 🙂';
+  if (script === 'English') return ownerNotified ? 'I am having a brief technical issue. I have sent your message to the page owner, who can follow up 🙂' : 'I am having a brief technical issue. Please try again in a little while 🙂';
+  return ownerNotified ? 'সাময়িকভাবে AI উত্তর দিতে সমস্যায় পড়েছে। তোমার মেসেজটি Owner-এর কাছে পাঠানো হয়েছে, তিনি দেখে জানাবেন 🙂' : 'সাময়িকভাবে উত্তর দিতে সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার মেসেজ দিও 🙂';
+}
+
+function isPersonalQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis)\b/i.test(t);
+}
+function statusMayAnswerQuestion(text) {
+  const q = String(text || '').toLowerCase();
+  return getActiveStatuses().some(item => {
+    const st = String(item.text || '').toLowerCase();
+    const asksLocation = /(কোথায়|কোথায়|where|kothay)/i.test(q);
+    const asksActivity = /(কি কর|কি করছ|what are you doing|ki koris|ki koros)/i.test(q);
+    const asksAvailability = /(আসবে|আসব|আছ|available|free|ব্যস্ত|busy|asba|ashba)/i.test(q);
+    const asksSchedule = /(কাল|আজ|tomorrow|today|kalke|ajke)/i.test(q) && /(কলেজ|college|যাব|যাবে|যাবি|আস|jabi|jaba|jabo|asbo|asba)/i.test(q);
+    const asksCollege = /(কলেজ|college)/i.test(q);
+    const asksFood = /(খেয়েছ|খেয়েছ|খাইছ|khaiso|khaichis|kheyecho)/i.test(q);
+    const statusHasLocation = /(বাইরে|বাসায়|বাসায়|কলেজ|কাজে|outside|college|office|basay|baire)/i.test(st);
+    const statusHasAvailability = /(ব্যস্ত|কাজে|ক্লাস|busy|meeting|class|পরে|দেরি|ফিরে|আসছি|pore|deri|free|available)/i.test(st);
+    const statusHasCollege = /(কলেজ|college)/i.test(st);
+    const statusHasSchedule = /(কাল|আজ|tomorrow|today|কলেজ|college|যাব|যাবে|যাবি|আস|jabo|jabi|jaba|asbo|asba)/i.test(st);
+    const statusHasFood = /(খেয়েছি|খেয়েছি|খাইছি|খাওয়া|খাওয়া|kheyechi|khaisi|khaichi)/i.test(st);
+    const scheduleDirectlyMatches = asksSchedule && statusHasSchedule && (!asksCollege || statusHasCollege);
+    return (asksLocation && statusHasLocation) || (asksActivity && (statusHasLocation || statusHasAvailability)) || (asksAvailability && statusHasAvailability) || scheduleDirectlyMatches || (asksFood && statusHasFood);
+  });
+}
 const STATUS_CUES = [
   'বাইরে যাচ্ছি', 'ব্যস্ত আছি', 'ব্যস্ত থাকব', 'কলেজে যাচ্ছি', 'খেয়ে নিয়েছি', 'খেয়ে নিয়েছি',
-  'অনলাইনে থাকব না', 'পাওয়া যাবে না', 'পাওয়া যাবে না', 'ঘুমাচ্ছি', 'বাসায় আছি', 'বাসায় আছি'
+  'অনলাইনে থাকব না', 'পাওয়া যাবে না', 'পাওয়া যাবে না', 'ঘুমাচ্ছি', 'বাসায় আছি', 'বাসায় আছি',
+  'ami baire', 'ami busy', 'busy achi', 'office e achi', 'college e achi', 'class e achi', 'kheyechi', 'khaisi', 'ghumacchi', 'basay achi'
 ];
 
 const processedIds = new Set();
-let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, tgBot = null;
+let activeReplyPendingId = null, pendingDraftStatus = null, lastGeminiError = null, lastGeminiModel = null, tgBot = null;
 
 function getActiveStatuses() {
   const now = Date.now();
@@ -120,29 +166,23 @@ function getConv(psid, name) {
 }
 
 function detectStyle(text, conv) {
-  const t = (text || '').trim(), low = t.toLowerCase();
+  const t = String(text || '').trim(), low = t.toLowerCase();
   const hasBn = /[\u0980-\u09FF]/.test(t);
   const hasEn = /[a-zA-Z]{2,}/.test(t);
-  const hasBanglish = /\b(ki|koris|koros|korteso|kemon|acho|aso|valo|bhalo|tui|tumi|apni|kothay|koi|khobor|kalke|ajke|khaisi|khaichi|khaicis|khaiso|jabo|jaimu|jaba|jabi|bujhi|w8|plz|hmm|accha|bhai)\b/.test(low);
+  const hasBanglish = /\b(ami|amar|amr|tumi|tomar|tmr|tui|tor|ki|kno|keno|kor|koro|koris|koros|korteso|korcho|kemon|acho|aso|ase|ache|nai|na|valo|bhalo|kothay|koi|khobor|kalke|ajke|khaiso|khaichis|jabo|jabi|jaba|jao|asbo|asbi|asba|hobe|hoise|bol|bolo|bolchi|thak|chup|kichu|bujhi|accha|acha|diba|dibo)\b/.test(low);
   if (hasBn && hasEn) conv.prefs.script = 'Mixed (Bangla+English)';
   else if (hasBn) conv.prefs.script = 'Bengali Script';
   else if (hasBanglish) conv.prefs.script = 'Banglish (Romanized Bengali)';
   else if (hasEn) conv.prefs.script = 'English';
-
-  if (/\b(tui|tor|koris|koros|achis|khaichis|khaicis|jabi|asbi)\b/.test(low) || /(তুই|তোর|করিস|আছিস|খেয়েছিস|খেয়েছিস|খাইছিস|যাবি|আসবি)/.test(t)) {
-    conv.prefs.pronoun = 'তুই (casual)';
-  } else if (/\b(apni|apnar|korchen|achen)\b/.test(low) || /(আপনি|আপনার|করছেন|আছেন)/.test(t)) {
-    conv.prefs.pronoun = 'আপনি (formal)';
-  } else if (/\b(tumi|tomar|korcho|acho|jaba|jabe)\b/.test(low) || /(তুমি|তোমার|করছ|আছো|যাবে)/.test(t)) {
-    conv.prefs.pronoun = 'তুমি (friendly)';
-  }
+  if (/\b(tui|tor|koris|koros|achis|khaichis|khaicis|jabi|asbi)\b/.test(low) || /(তুই|তোর|করিস|আছিস|খেয়েছিস|খেয়েছিস|খাইছিস|যাবি|আসবি)/u.test(t)) conv.prefs.pronoun = 'তুই (casual)';
+  else if (/\b(apni|apnar|korchen|achen)\b/.test(low) || /(আপনি|আপনার|করছেন|আছেন)/u.test(t)) conv.prefs.pronoun = 'আপনি (formal)';
+  else if (/\b(tumi|tomar|korcho|acho|jaba|jabe)\b/.test(low) || /(তুমি|তোমার|করছ|আছো|যাবে)/u.test(t)) conv.prefs.pronoun = 'তুমি (friendly)';
   const tokens = low.match(/\b(khaisi|khaichi|khaicis|khaiso|jabo|jaimu|koris|koros|valo|bhalo)\b/g);
   if (tokens) {
     tokens.forEach(tk => { if (!conv.prefs.spellingNotes.includes(tk)) conv.prefs.spellingNotes.push(tk); });
     if (conv.prefs.spellingNotes.length > 8) conv.prefs.spellingNotes = conv.prefs.spellingNotes.slice(-8);
   }
 }
-
 function pushMsg(psid, role, text) {
   const c = getConv(psid);
   if (role === 'User') { c.lastUserAt = Date.now(); detectStyle(text, c); }
@@ -155,6 +195,7 @@ function pushMsg(psid, role, text) {
 }
 
 async function analyzeMessage(psid, userText) {
+  lastGeminiModel = null;
   if (!GEMINI_API_KEY) { lastGeminiError = 'Missing GEMINI_API_KEY'; return null; }
   const conv = getConv(psid);
   const history = conv.messages.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
@@ -183,21 +224,46 @@ Instructions:
    - If Bengali script, reply in Bengali script. If English, reply in English. If Mixed, reply in Mixed.
 3. If an Approved Active Status directly answers a personal/activity question, set classification="GENERAL", requires_owner=false, and reply naturally in the user's exact script & pronoun using that approved status.
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
-5. If PERSONAL (owner's plans/location/eating/college/calls without active status), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true, suggested_reply="", and provide 3-4 natural optional replies in "owner_suggestions" matching the user's script & pronoun.
+5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
+6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
 Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."]}`;
 
+  // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
-  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean))];
+  const legacyModel = /^gemini-2\.5-/i.test(configuredModel);
+  const models = [...new Set([(!legacyModel && configuredModel) || null, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash'].filter(Boolean))];
   for (const m of models) {
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, responseMimeType: 'application/json' } })
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(25000),
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 700 } })
       });
       const d = await res.json();
-      if (!res.ok) { lastGeminiError = `${m} HTTP ${res.status}: ${d.error ? d.error.message : 'Error'}`; continue; }
-      const raw = d.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (raw) { lastGeminiError = null; return JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()); }
+      if (!res.ok) {
+        lastGeminiError = `${m} HTTP ${res.status}: ${d.error ? d.error.message : 'Error'}`;
+        if (res.status === 401 || res.status === 403) return null;
+        if ([400, 404, 429, 500, 502, 503, 504].includes(res.status)) continue;
+        return null;
+      }
+      const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
+      if (raw) {
+        const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+        const allowed = ['GENERAL', 'PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT', 'SPAM', 'FOLLOW_UP'];
+        const classification = String(parsed.classification || 'UNCERTAIN').toUpperCase();
+        const safeClass = allowed.includes(classification) ? classification : 'UNCERTAIN';
+        const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
+        const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
+        lastGeminiError = null;
+        lastGeminiModel = m;
+        return {
+          classification: safeClass,
+          confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
+          requires_owner: requiresOwner,
+          reason: String(parsed.reason || 'Owner review required').slice(0, 250),
+          suggested_reply: requiresOwner ? '' : (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : ''),
+          owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script)
+        };
+      }
     } catch (e) { lastGeminiError = `${m}: ${e.message}`; }
   }
   return null;
@@ -206,13 +272,12 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
 function escalate(psid, name, q, cls, reason, suggs = []) {
   state.pendingCounter += 1; state.stats.escalated += 1;
   const pid = `PR-${state.pendingCounter}`;
-  const clean = Array.isArray(suggs) && suggs.length ? suggs.slice(0, 4) : ['হ্যাঁ, ঠিক আছে।', 'না, এখন না।', 'একটু পরে জানাচ্ছি।'];
+  const clean = (Array.isArray(suggs) && suggs.length ? suggs.slice(0, 4) : fallbackSuggestions(getConv(psid).prefs.script)).map(v => withEmoji(v, '🙂'));
   state.pendingReplies[pid] = { id: pid, psid, senderName: name, question: q, classification: cls, reason, suggestions: clean, status: 'WAITING' };
   if (tgBot && ADMIN_CHAT_ID) {
     const sLines = clean.map((s, i) => `${i + 1}. ${s}`).join('\n');
     const sRow = clean.map((_, i) => ({ text: `✅ #${i + 1}`, callback_data: `sugg:${pid}:${i}` }));
-    tgBot.sendMessage(ADMIN_CHAT_ID, `🚨 *ZEVIAN — ${cls} QUESTION*\n\n🆔 \`${pid}\` | 👤 ${name}\n💬 PSID: \`${psid}\`\n💡 ${reason}\n\n❓ *Message:*\n${q}\n\n✨ *AI Suggestions (1-Tap Send):*\n${sLines}`, {
-      parse_mode: 'Markdown',
+    tgBot.sendMessage(ADMIN_CHAT_ID, `🚨 ZEVIAN — ${cls} QUESTION\n\n🆔 ${pid} | 👤 ${name}\n💬 PSID: ${psid}\n💡 ${reason}\n\n❓ Message:\n${q}\n\n✨ AI Suggestions (1-Tap Send):\n${sLines}`, {
       reply_markup: {
         inline_keyboard: [
           sRow,
@@ -225,10 +290,22 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
 }
 
 async function sendOwnerReply(psid, text, pid = null) {
-  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text } });
+  const safeText = withEmoji(text, '🙂');
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
   if (res && res.message_id) {
-    pushMsg(psid, 'Owner', text); state.stats.ownerReplied += 1;
-    if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = text; }
+    pushMsg(psid, 'Owner', safeText); state.stats.ownerReplied += 1;
+    if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = safeText; }
+    return true;
+  }
+  return false;
+}
+
+async function sendPageReply(psid, text, role = 'ZEVIAN') {
+  const safeText = withEmoji(text, '🙂');
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
+  if (res && res.message_id) {
+    pushMsg(psid, role, safeText);
+    if (role === 'ZEVIAN') state.stats.autoReplied += 1;
     return true;
   }
   return false;
@@ -257,17 +334,21 @@ app.post('/webhook', async (req, res) => {
         const psid = ev.sender?.id, mid = ev.message?.mid;
         if (!psid || psid === pageId || ev.message?.is_echo || state.blockedUsers.includes(psid)) continue;
         if (mid && processedIds.has(mid)) continue;
-        if (mid) processedIds.add(mid);
+        if (mid) {
+          processedIds.add(mid);
+          if (processedIds.size > 5000) processedIds.delete(processedIds.values().next().value);
+        }
         state.stats.totalIn += 1;
         const name = await fetchSenderName(psid);
         const conv = getConv(psid, name);
 
         if (!ev.message?.text && ev.message?.attachments?.length) {
           const att = ev.message.attachments[0];
-          if (att.type === 'image' && ev.message.sticker_id) {
-            await callGraph('me/messages', { recipient: { id: psid }, message: { text: '😊' } });
+          if (ev.message.sticker_id) {
+            await sendPageReply(psid, '😊', 'ZEVIAN');
           } else {
-            escalate(psid, name, `[${att.type.toUpperCase()}] ${att.payload?.url || ''}`, 'UNCERTAIN', `User sent ${att.type} media`, ['দেখলাম, ধন্যবাদ!', 'একটু পরে দেখে/শুনে জানাচ্ছি।']);
+            await sendPageReply(psid, conv.prefs.script === 'English' ? 'I received your attachment. I will review it and get back to you 🙂' : 'তোমার পাঠানো ফাইল/ছবি পেয়েছি। দেখে জানাচ্ছি 🙂', 'ZEVIAN');
+            escalate(psid, name, `[${String(att.type || 'file').toUpperCase()} attachment received]`, 'UNCERTAIN', `User sent ${att.type || 'file'} media`, fallbackSuggestions(conv.prefs.script));
           }
           continue;
         }
@@ -275,32 +356,39 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        const ai = await analyzeMessage(psid, text);
-        const low = text.toLowerCase();
-        if (PERSONAL_CUES.some(c => low.includes(c)) && getActiveStatuses().length === 0) {
-          const holdMsg = conv.prefs.script.includes('Banglish')
-            ? 'Ei proshnotar uttor amar Owner dite parben. Ektu wait koro 🙂'
+        // Deterministic owner-privacy gate runs BEFORE Gemini to prevent accidental personal answers.
+        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text)) {
+          const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
+            ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
             : conv.prefs.script === 'English'
-            ? 'Only my Owner can answer this. Please wait a moment 🙂'
-            : 'এই প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
-          await callGraph('me/messages', { recipient: { id: psid }, message: { text: holdMsg } });
-          escalate(psid, name, text, 'PERSONAL', 'Personal question (no active status)', ai ? ai.owner_suggestions : []);
+            ? 'Only my Owner can answer this personal question. Please wait a moment 🙂'
+            : 'এই ব্যক্তিগত প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
+          await sendPageReply(psid, holdMsg, 'ZEVIAN');
+          escalate(psid, name, text, 'PERSONAL', 'Personal question; no directly relevant approved status', fallbackSuggestions(conv.prefs.script));
           continue;
         }
-        if (!ai) { escalate(psid, name, text, 'UNCERTAIN', `Gemini error: ${lastGeminiError}`); continue; }
+
+        const ai = await analyzeMessage(psid, text);
+        if (!ai) {
+          const ownerNotified = Boolean(tgBot && ADMIN_CHAT_ID);
+          await sendPageReply(psid, fallbackUserReply(conv.prefs.script, ownerNotified), 'ZEVIAN');
+          escalate(psid, name, text, 'UNCERTAIN', `Gemini unavailable: ${lastGeminiError || 'all model attempts failed'}`, fallbackSuggestions(conv.prefs.script));
+          continue;
+        }
         const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
         if (cls === 'SPAM') continue;
         if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && Number(ai.confidence || 0) >= state.config.confidenceThreshold && ai.suggested_reply) {
-          const rep = ai.suggested_reply.trim();
-          await callGraph('me/messages', { recipient: { id: psid }, message: { text: rep } });
-          pushMsg(psid, 'ZEVIAN', rep); state.stats.autoReplied += 1;
-          if (tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 *ZEVIAN (${cls})*\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${rep}`, { parse_mode: 'Markdown' }).catch(() => {});
+          const replyText = withEmoji(ai.suggested_reply, '🙂');
+          const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
+          if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
         } else {
-          if (cls === 'PERSONAL') {
-            const holdMsg = conv.prefs.script.includes('Banglish') ? 'Ei proshnotar uttor amar Owner dite parben. Ektu wait koro 🙂' : 'এই প্রশ্নটির উত্তর আমার Owner দিতে পারবেন। একটু অপেক্ষা করো 🙂';
-            await callGraph('me/messages', { recipient: { id: psid }, message: { text: holdMsg } });
-          }
-          escalate(psid, name, text, cls, ai.reason || 'Owner approval needed', ai.owner_suggestions || []);
+          const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
+            ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
+            : conv.prefs.script === 'English'
+            ? 'I will check this with my Owner and get back to you 🙂'
+            : 'বিষয়টি আমার Owner-এর সঙ্গে নিশ্চিত করে জানাচ্ছি 🙂';
+          await sendPageReply(psid, holdMsg, 'ZEVIAN');
+          escalate(psid, name, text, cls, ai.reason || 'Owner approval needed', ai.owner_suggestions || fallbackSuggestions(conv.prefs.script));
         }
       }
     }
@@ -310,8 +398,9 @@ app.post('/webhook', async (req, res) => {
           const cid = ch.value.comment_id, fid = ch.value.from?.id, fn = ch.value.from?.name || 'Friend', ct = ch.value.message || '';
           if (!cid || fid === pageId || !ct || processedIds.has(cid)) continue;
           processedIds.add(cid);
+          if (processedIds.size > 5000) processedIds.delete(processedIds.values().next().value);
           const ai = await analyzeMessage(`c_${fid || cid}`, `[Post Comment]: ${ct}`);
-          const rep = (ai && ai.suggested_reply) || `ধন্যবাদ ${fn}! কীভাবে সাহায্য করতে পারি?`;
+          const rep = withEmoji((ai && ai.suggested_reply) || `ধন্যবাদ ${fn}! কীভাবে সাহায্য করতে পারি?`, '😊');
           if (state.config.commentReplyEnabled) await callGraph(`${cid}/comments`, { message: `ধন্যবাদ ${fn}! আপনার ইনবক্সে বিস্তারিত পাঠিয়ে দেওয়া হয়েছে 😊` });
           if (state.config.commentInboxEnabled) await callGraph(`${pageId}/messages`, { recipient: { comment_id: cid }, message: { text: rep } });
         }
@@ -350,7 +439,7 @@ if (BOT_TOKEN) {
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
-    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.5 Ultimate Control Center*\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiError ? '⚠️ Error (/testgemini)' : '✅ Ready'}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
+    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.7 AI Control Center*\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -403,7 +492,7 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/inbox/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.conversations).slice(-8); tgBot.sendMessage(m.chat.id, l.length ? l.map(c => `👤 *${c.senderName}* (\`${c.psid}\`)\n🗣️ ${c.prefs.script} | ${c.prefs.pronoun}\n└ ${c.messages[c.messages.length - 1]?.text || ''}`).join('\n\n') : '💬 কোনো চ্যাট নেই।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/history (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const c = state.conversations[match[1].trim()]; tgBot.sendMessage(m.chat.id, c ? `💬 *${c.senderName} History:*\n` + c.messages.slice(-12).map(x => `[${x.time}] *${x.role}:* ${x.text}`).join('\n') : '⚠️ এই PSID-র কোনো হিস্ট্রি পাওয়া যায়নি।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 Clear Conversation Memory', callback_data: 'clear_mem' }]] } }); });
-  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v4.5 OK (Banglish Mirror)!*\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
+  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v4.7 OK (Banglish Mirror)!*\nModel: \`${lastGeminiModel || 'auto'}\`\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
@@ -447,8 +536,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.6.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.5 Ultimate (Banglish Mirror Mode)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.7.0', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: !lastGeminiError && Boolean(lastGeminiModel), geminiModel: lastGeminiModel, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.7 AI Reply Engine (Emoji + Banglish Mirror)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiError ? 'ERROR' : 'READY'}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [

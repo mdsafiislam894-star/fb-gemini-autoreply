@@ -23,7 +23,7 @@ Set these in Render → service → Environment. Never commit secret values to G
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token |
 | `TELEGRAM_ADMIN_CHAT_ID` | Only Telegram chat allowed to use owner commands |
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `GEMINI_MODEL` | Preferred Gemini model; defaults to `gemini-2.5-flash` if blank |
+| `GEMINI_MODEL` | Preferred Gemini model; defaults to `gemini-3.5-flash-lite` if blank |
 | `PORT` | Supplied by Render; local fallback is 3000 |
 
 The Render blueprint declares secret values with `sync: false`; it does not contain credentials. Confirm all required values exist in the Render dashboard before deployment. Existing dashboard values should be preserved.
@@ -58,7 +58,7 @@ cp .env.example .env
 npm start
 ```
 
-No `.env.example` is included yet; configure the variables listed above in your local environment.
+A safe `.env.example` template is included. Replace the blank values locally and keep the real `.env` file untracked.
 
 ## Security changes in v4.6
 
@@ -66,4 +66,9 @@ No `.env.example` is included yet; configure the variables listed above in your 
 - Enforced fail-closed Meta webhook signature verification.
 - Enforced fail-closed Telegram owner authorization.
 - Added startup warnings for missing security configuration.
-- Honored the configured `GEMINI_MODEL` value before model fallbacks.
+- Migrates restricted `gemini-2.5-*` configuration to `gemini-3.5-flash-lite`, then falls back to `gemini-3.1-flash-lite` and `gemini-3.6-flash`.
+- Uses a timeout, structured JSON validation, and API-key request headers for Gemini calls.
+- Adds a deterministic personal-question privacy gate before Gemini to prevent an AI reply from following an owner-escalation acknowledgement.
+- Enforces at least one context-appropriate emoji on user-facing page, owner-approved, fallback, and comment replies.
+- Improves Romanized Bengali detection, pronoun mirroring, and script-aware owner fallback suggestions.
+- Runs `node --check server.js` before the service starts.
