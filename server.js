@@ -30,6 +30,10 @@ const state = {
     systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
   },
   ownerStatuses: [],
+  ownerPresence: 'offline',
+  ownerTasks: [],
+  contactProfiles: {},
+  taskCounter: 200,
   kbItems: [
     { id: 'kb-1', question: 'ZEVIAN কী?', answer: 'ZEVIAN হলো এই ফেসবুক পেজের এআই পার্সোনাল মেসেঞ্জার অ্যাসিস্ট্যান্ট, যে স্বাভাবিকভাবে কথা বলে এবং ব্যক্তিগত প্রশ্নগুলো সরাসরি Owner-এর কাছে পৌঁছে দেয়।' }
   ],
@@ -47,6 +51,70 @@ const PERSONAL_CUES = [
   'বাসায় আছ', 'বাসায় আছ', 'কখন আসব', 'চিনতে পারছ', 'তুমি কি রাজি', 'kothay ach',
   'phone dibo', 'kalke asb', 'kalke jaba', 'basay ach', 'ki diye kheye', 'khaichis', 'khaicis', 'khaiso'
 ];
+function getContactProfile(psid) {
+  return state.contactProfiles[psid] || { label: 'Friend', relationship: 'friend', affectionate: false, lastProactiveAt: 0 };
+}
+
+function isTaskIntent(text) {
+  const t = String(text || '').toLowerCase();
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|বলবে|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|অনলাইনে আসলে|স্যার ডাকছে|সাফিকে বল|সাফি কে বল|safi ke bolo|safi online|phone dite bol)/i.test(t);
+}
+
+function addOwnerTask(psid, senderName, message) {
+  const duplicate = state.ownerTasks.find(t => t.status === 'OPEN' && t.psid === psid && t.sourceMessage === message);
+  if (duplicate) return duplicate;
+  state.taskCounter += 1;
+  const task = {
+    id: 'TK-' + state.taskCounter,
+    psid, senderName, sourceMessage: String(message).slice(0, 1000),
+    title: String(message).slice(0, 180),
+    status: 'OPEN', createdAt: Date.now(), notifiedAt: null
+  };
+  state.ownerTasks.unshift(task);
+  if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
+  if (tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID,
+    '📌 ZEVIAN REMINDER ADDED\n\n🆔 ' + task.id + '\n👤 ' + senderName + '\n💬 ' + task.sourceMessage + '\n\nOwner online হলে /tasks দিয়ে দেখতে পারবেন 🙂'
+  ).catch(() => {});
+  return task;
+}
+
+function offlinePersonalReply(text, conv, task) {
+  const q = String(text || '').toLowerCase();
+  const profile = getContactProfile(conv.psid);
+  const isBanglish = conv.prefs.script === 'Banglish (Romanized Bengali)';
+  const isEnglish = conv.prefs.script === 'English';
+  const isWife = profile.relationship === 'wife' || profile.affectionate;
+  if (isWife) {
+    if (/(ki koris|কি কর)/i.test(q)) return isBanglish ? 'Ei to, Safi Sir-er kajgulo dekhashona korchi Sona 🙂 Tumi ki korcho? 💙' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি সোনা 🙂 তুমি কী করছো? 💙';
+    if (/(kha|খে|খাই)/i.test(q)) return isBanglish ? 'Eta Safi Sir-er kach theke confirm kore bolte hobe Bou 😊 Tumi kheyecho to? 💗' : 'এটা সাফি স্যারের কাছ থেকেই নিশ্চিত করে বলতে হবে বউ 😊 তুমি খেয়েছো তো? 💗';
+    if (/(koi|kothay|কোথায়|কোথায়)/i.test(q)) return isBanglish ? 'Safi Sir ekhon online nei Janu. Hoyto kono kaje byasto achhen. Ki dorkar bolo, ami mone koriye rakhbo 💙' : 'সাফি স্যার এখন অনলাইনে নেই জানু। হয়তো কোনো কাজে ব্যস্ত আছেন। কী দরকার বলো, আমি মনে করিয়ে রাখব 💙';
+    return isBanglish ? 'Safi Sir ekhon online nei Sona. Tomar kothata ami note kore rakhlam, uni online hole janabo 😊💗' : 'সাফি স্যার এখন অনলাইনে নেই সোনা। তোমার কথাটা নোট করে রাখলাম, উনি অনলাইনে এলে জানাবো 😊💗';
+  }
+  if (/(কি কর|ki koris|ki koros|what are you doing)/i.test(q)) return isEnglish ? 'I’m here helping with Safi Sir’s messages and work 🙂 What can I help you with?' : isBanglish ? 'Ei to, Safi Sir-er kajgulo niye achi 🙂 Tomar ki dorkar bolo?' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি 🙂 তোমার কী দরকার বলো?';
+  if (/(কই|কোথায়|কোথায়|koi|kothay|where are you)/i.test(q)) return isEnglish ? 'Safi Sir is offline right now. He may be busy with something. What did you need? I can leave him a reminder 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Hoyto kono kaje byasto achhen. Ki dorkar bolo, ami mone koriye rakhbo 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। হয়তো কোনো কাজে ব্যস্ত আছেন। কী দরকার বলো, আমি তাঁকে মনে করিয়ে রাখব 🙂';
+  if (/(kha|খে|খাই|eaten|eat)/i.test(q)) return isEnglish ? 'I’d need to confirm that with Safi Sir. He is offline right now 🙂 Have you eaten?' : isBanglish ? 'Eta Safi Sir-er kach theke jene bolte hobe. Uni ekhon online nei 🙂 Tumi kheyecho?' : 'এটা সাফি স্যারের কাছ থেকেই জেনে বলতে হবে। তিনি এখন অনলাইনে নেই 🙂 তুমি খেয়েছো?';
+  if (/(কলেজ|college|jabi|jaba|যাবি|যাবে|যাবেন)/i.test(q)) return isEnglish ? 'Is there something about college I should pass on? I’ll let Safi Sir know when he is back online 🙂' : isBanglish ? 'College niye kono dorkar ache? Ki bolte hobe bolo, Safi Sir online hole janabo 🙂' : 'কলেজের বিষয়ে কোনো দরকার আছে? কী বলতে হবে বলো, সাফি স্যার অনলাইনে এলে জানাবো 🙂';
+  return task
+    ? (isEnglish ? 'Safi Sir is offline right now. I’ve saved your message as a reminder for him 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Tomar kothata reminder hisebe save kore rakhlam 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। তোমার কথাটি তাঁর জন্য রিমাইন্ডার হিসেবে রেখে দিলাম 🙂')
+    : (isEnglish ? 'Safi Sir is offline right now. What did you need? I can pass along an important message 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Ki dorkar bolo? Dorkar hole message-ta mone koriye debo 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। কী দরকার বলো? প্রয়োজন হলে কথাটি তাঁকে মনে করিয়ে দেব 🙂');
+}
+
+function scheduleRelationshipFollowup(psid, conv, followup, inboundAt) {
+  const profile = getContactProfile(psid);
+  if (!profile.affectionate || !followup || typeof followup !== 'string') return;
+  if (Date.now() - conv.lastUserAt > 24 * 60 * 60 * 1000) return;
+  if (Date.now() - Number(profile.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
+  const message = withEmoji(followup.slice(0, 400), '💙');
+  setTimeout(async () => {
+    const current = getConv(psid);
+    const p = getContactProfile(psid);
+    if (current.lastUserAt !== inboundAt || Date.now() - current.lastUserAt >= 24 * 60 * 60 * 1000) return;
+    if (Date.now() - Number(p.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
+    const ok = await sendPageReply(psid, message, 'ZEVIAN');
+    if (ok) p.lastProactiveAt = Date.now();
+  }, 12000);
+}
+
 function hasEmoji(text) {
   return /\p{Extended_Pictographic}/u.test(String(text || ''));
 }
