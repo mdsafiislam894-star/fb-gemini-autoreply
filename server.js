@@ -81,17 +81,21 @@ function statusMayAnswerQuestion(text) {
     const asksActivity = /(কি কর|কি করছ|what are you doing|ki koris|ki koros)/i.test(q);
     const asksAvailability = /(আসবে|আসব|আছ|available|free|ব্যস্ত|busy|asba|ashba)/i.test(q);
     const asksSchedule = /(কাল|আজ|tomorrow|today|kalke|ajke)/i.test(q) && /(কলেজ|college|যাব|যাবে|যাবি|আস|jabi|jaba|jabo|asbo|asba)/i.test(q);
+    const asksCollege = /(কলেজ|college)/i.test(q);
     const asksFood = /(খেয়েছ|খেয়েছ|খাইছ|khaiso|khaichis|kheyecho)/i.test(q);
     const statusHasLocation = /(বাইরে|বাসায়|বাসায়|কলেজ|কাজে|outside|college|office|basay|baire)/i.test(st);
     const statusHasAvailability = /(ব্যস্ত|কাজে|ক্লাস|busy|meeting|class|পরে|দেরি|ফিরে|আসছি|pore|deri|free|available)/i.test(st);
+    const statusHasCollege = /(কলেজ|college)/i.test(st);
     const statusHasSchedule = /(কাল|আজ|tomorrow|today|কলেজ|college|যাব|যাবে|যাবি|আস|jabo|jabi|jaba|asbo|asba)/i.test(st);
     const statusHasFood = /(খেয়েছি|খেয়েছি|খাইছি|খাওয়া|খাওয়া|kheyechi|khaisi|khaichi)/i.test(st);
-    return (asksLocation && statusHasLocation) || (asksActivity && (statusHasLocation || statusHasAvailability)) || (asksAvailability && statusHasAvailability) || (asksSchedule && statusHasSchedule) || (asksFood && statusHasFood);
+    const scheduleDirectlyMatches = asksSchedule && statusHasSchedule && (!asksCollege || statusHasCollege);
+    return (asksLocation && statusHasLocation) || (asksActivity && (statusHasLocation || statusHasAvailability)) || (asksAvailability && statusHasAvailability) || scheduleDirectlyMatches || (asksFood && statusHasFood);
   });
 }
 const STATUS_CUES = [
   'বাইরে যাচ্ছি', 'ব্যস্ত আছি', 'ব্যস্ত থাকব', 'কলেজে যাচ্ছি', 'খেয়ে নিয়েছি', 'খেয়ে নিয়েছি',
-  'অনলাইনে থাকব না', 'পাওয়া যাবে না', 'পাওয়া যাবে না', 'ঘুমাচ্ছি', 'বাসায় আছি', 'বাসায় আছি'
+  'অনলাইনে থাকব না', 'পাওয়া যাবে না', 'পাওয়া যাবে না', 'ঘুমাচ্ছি', 'বাসায় আছি', 'বাসায় আছি',
+  'ami baire', 'ami busy', 'busy achi', 'office e achi', 'college e achi', 'class e achi', 'kheyechi', 'khaisi', 'ghumacchi', 'basay achi'
 ];
 
 const processedIds = new Set();
