@@ -27,9 +27,13 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions.'
+    systemPrompt: 'You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For explicitly tagged wife/partner contacts, use affectionate natural language; never pretend to be the Owner. (13) Optionally provide one short follow_up question for a wife/partner contact; leave it empty if repetitive or intrusive.'
   },
   ownerStatuses: [],
+  ownerPresence: 'offline',
+  ownerTasks: [],
+  contactProfiles: {},
+  taskCounter: 200,
   kbItems: [
     { id: 'kb-1', question: 'ZEVIAN কী?', answer: 'ZEVIAN হলো এই ফেসবুক পেজের এআই পার্সোনাল মেসেঞ্জার অ্যাসিস্ট্যান্ট, যে স্বাভাবিকভাবে কথা বলে এবং ব্যক্তিগত প্রশ্নগুলো সরাসরি Owner-এর কাছে পৌঁছে দেয়।' }
   ],
@@ -47,6 +51,70 @@ const PERSONAL_CUES = [
   'বাসায় আছ', 'বাসায় আছ', 'কখন আসব', 'চিনতে পারছ', 'তুমি কি রাজি', 'kothay ach',
   'phone dibo', 'kalke asb', 'kalke jaba', 'basay ach', 'ki diye kheye', 'khaichis', 'khaicis', 'khaiso'
 ];
+function getContactProfile(psid) {
+  return state.contactProfiles[psid] || { label: 'Friend', relationship: 'friend', affectionate: false, lastProactiveAt: 0 };
+}
+
+function isTaskIntent(text) {
+  const t = String(text || '').toLowerCase();
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
+}
+
+function addOwnerTask(psid, senderName, message) {
+  const duplicate = state.ownerTasks.find(t => t.status === 'OPEN' && t.psid === psid && t.sourceMessage === message);
+  if (duplicate) return duplicate;
+  state.taskCounter += 1;
+  const task = {
+    id: 'TK-' + state.taskCounter,
+    psid, senderName, sourceMessage: String(message).slice(0, 1000),
+    title: String(message).slice(0, 180),
+    status: 'OPEN', createdAt: Date.now(), notifiedAt: null
+  };
+  state.ownerTasks.unshift(task);
+  if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
+  if (tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID,
+    '📌 ZEVIAN REMINDER ADDED\n\n🆔 ' + task.id + '\n👤 ' + senderName + '\n💬 ' + task.sourceMessage + '\n\nOwner online হলে /tasks দিয়ে দেখতে পারবেন 🙂'
+  ).catch(() => {});
+  return task;
+}
+
+function offlinePersonalReply(text, conv, task) {
+  const q = String(text || '').toLowerCase();
+  const profile = getContactProfile(conv.psid);
+  const isBanglish = conv.prefs.script === 'Banglish (Romanized Bengali)';
+  const isEnglish = conv.prefs.script === 'English';
+  const isWife = profile.relationship === 'wife' || profile.affectionate;
+  if (isWife) {
+    if (/(ki koris|কি কর)/i.test(q)) return isBanglish ? 'Ei to, Safi Sir-er kajgulo dekhashona korchi Sona 🙂 Tumi ki korcho? 💙' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি সোনা 🙂 তুমি কী করছো? 💙';
+    if (/(kha|খে|খাই)/i.test(q)) return isBanglish ? 'Eta Safi Sir-er kach theke confirm kore bolte hobe Bou 😊 Tumi kheyecho to? 💗' : 'এটা সাফি স্যারের কাছ থেকেই নিশ্চিত করে বলতে হবে বউ 😊 তুমি খেয়েছো তো? 💗';
+    if (/(koi|kothay|কোথায়|কোথায়)/i.test(q)) return isBanglish ? 'Safi Sir ekhon online nei Janu. Hoyto kono kaje byasto achhen. Ki dorkar bolo, ami mone koriye rakhbo 💙' : 'সাফি স্যার এখন অনলাইনে নেই জানু। হয়তো কোনো কাজে ব্যস্ত আছেন। কী দরকার বলো, আমি মনে করিয়ে রাখব 💙';
+    return isBanglish ? 'Safi Sir ekhon online nei Sona. Tomar kothata ami note kore rakhlam, uni online hole janabo 😊💗' : 'সাফি স্যার এখন অনলাইনে নেই সোনা। তোমার কথাটা নোট করে রাখলাম, উনি অনলাইনে এলে জানাবো 😊💗';
+  }
+  if (/(কি কর|ki koris|ki koros|what are you doing)/i.test(q)) return isEnglish ? 'I’m here helping with Safi Sir’s messages and work 🙂 What can I help you with?' : isBanglish ? 'Ei to, Safi Sir-er kajgulo niye achi 🙂 Tomar ki dorkar bolo?' : 'এইতো, সাফি স্যারের কাজগুলো সামলাচ্ছি 🙂 তোমার কী দরকার বলো?';
+  if (/(কই|কোথায়|কোথায়|koi|kothay|where are you)/i.test(q)) return isEnglish ? 'Safi Sir is offline right now. He may be busy with something. What did you need? I can leave him a reminder 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Hoyto kono kaje byasto achhen. Ki dorkar bolo, ami mone koriye rakhbo 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। হয়তো কোনো কাজে ব্যস্ত আছেন। কী দরকার বলো, আমি তাঁকে মনে করিয়ে রাখব 🙂';
+  if (/(kha|খে|খাই|eaten|eat)/i.test(q)) return isEnglish ? 'I’d need to confirm that with Safi Sir. He is offline right now 🙂 Have you eaten?' : isBanglish ? 'Eta Safi Sir-er kach theke jene bolte hobe. Uni ekhon online nei 🙂 Tumi kheyecho?' : 'এটা সাফি স্যারের কাছ থেকেই জেনে বলতে হবে। তিনি এখন অনলাইনে নেই 🙂 তুমি খেয়েছো?';
+  if (/(কলেজ|college|jabi|jaba|যাবি|যাবে|যাবেন)/i.test(q)) return isEnglish ? 'Is there something about college I should pass on? I’ll let Safi Sir know when he is back online 🙂' : isBanglish ? 'College niye kono dorkar ache? Ki bolte hobe bolo, Safi Sir online hole janabo 🙂' : 'কলেজের বিষয়ে কোনো দরকার আছে? কী বলতে হবে বলো, সাফি স্যার অনলাইনে এলে জানাবো 🙂';
+  return task
+    ? (isEnglish ? 'Safi Sir is offline right now. I’ve saved your message as a reminder for him 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Tomar kothata reminder hisebe save kore rakhlam 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। তোমার কথাটি তাঁর জন্য রিমাইন্ডার হিসেবে রেখে দিলাম 🙂')
+    : (isEnglish ? 'Safi Sir is offline right now. What did you need? I can pass along an important message 🙂' : isBanglish ? 'Safi Sir ekhon online nei. Ki dorkar bolo? Dorkar hole message-ta mone koriye debo 🙂' : 'সাফি স্যার এখন অনলাইনে নেই। কী দরকার বলো? প্রয়োজন হলে কথাটি তাঁকে মনে করিয়ে দেব 🙂');
+}
+
+function scheduleRelationshipFollowup(psid, conv, followup, inboundAt) {
+  const profile = getContactProfile(psid);
+  if (!profile.affectionate || !followup || typeof followup !== 'string') return;
+  if (Date.now() - conv.lastUserAt > 24 * 60 * 60 * 1000) return;
+  if (Date.now() - Number(profile.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
+  const message = withEmoji(followup.slice(0, 400), '💙');
+  setTimeout(async () => {
+    const current = getConv(psid);
+    const p = getContactProfile(psid);
+    if (current.lastUserAt !== inboundAt || Date.now() - current.lastUserAt >= 24 * 60 * 60 * 1000) return;
+    if (Date.now() - Number(p.lastProactiveAt || 0) < 6 * 60 * 60 * 1000) return;
+    const ok = await sendPageReply(psid, message, 'ZEVIAN');
+    if (ok) p.lastProactiveAt = Date.now();
+  }, 12000);
+}
+
 function hasEmoji(text) {
   return /\p{Extended_Pictographic}/u.test(String(text || ''));
 }
@@ -71,7 +139,7 @@ function fallbackUserReply(script, ownerNotified) {
 
 function isPersonalQuestion(text) {
   const t = String(text || '').toLowerCase();
-  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis)\b/i.test(t);
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|are you at home|are you home|what are you doing|are you coming|will you come|have you eaten|did you eat|can i call you|can you call me|when are you free|are you busy|what are your plans|when can we meet|ki koris|ki koros|ki korcho|ki korteso|kothay acho|kothay aso|kothay chili|koi chili|koi chilis|koi achis|koi achos|kalke jaba|kalke jabi|kalke asbi|kalke asba|ajke jabi|ajke asbi|kalke college jabi|college jaba|college jabi|khaiso|khaichis|khaicis)\b/i.test(t);
 }
 function statusMayAnswerQuestion(text) {
   const q = String(text || '').toLowerCase();
@@ -204,9 +272,13 @@ async function analyzeMessage(psid, userText) {
   const activeSt = getActiveStatuses();
   const stBlock = activeSt.length ? activeSt.map(s => `- ${s.text}`).join('\n') : '(None)';
   const kbBlock = state.kbItems.map(i => `Q: ${i.question} | A: ${i.answer}`).join('\n');
+  const contact = getContactProfile(psid);
+  const relationshipBlock = contact.relationship === 'wife' ? 'This sender is Owner-approved as wife/partner. Use warm, respectful, affectionate casual language and terms like Sona/Bou/Janu naturally, not in every sentence.' : `Contact label: ${contact.label || 'Friend'}`;
 
   const prompt = `${state.config.systemPrompt}
 Owner Display Name: ${state.config.ownerDisplayName}
+Contact Relationship: ${relationshipBlock}
+Owner Presence: ${state.ownerPresence}
 Sender Profile -> Script: ${conv.prefs.script} | Pronoun: ${conv.prefs.pronoun} | Preferred Banglish words: ${conv.prefs.spellingNotes.join(', ') || 'none'}
 Recent ZEVIAN Replies (DO NOT repeat these verbatim): ${recentBotReplies || '(None)'}
 Approved Active Shareable Owner Statuses (use ONLY if directly relevant):
@@ -227,7 +299,7 @@ Instructions:
 4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
 5. If PERSONAL (owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". Never infer an answer from an unrelated status.
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."]}`;
+Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural second message would add value; otherwise empty string.`;
 
   // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
@@ -262,7 +334,8 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
           requires_owner: requiresOwner,
           reason: String(parsed.reason || 'Owner review required').slice(0, 250),
           suggested_reply: requiresOwner ? '' : (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : ''),
-          owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script)
+          owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script),
+          follow_up: !requiresOwner && typeof parsed.follow_up === 'string' ? parsed.follow_up.trim().slice(0, 400) : ''
         };
       }
     } catch (e) { lastGeminiError = `${m}: ${e.message}`; }
@@ -357,7 +430,14 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        // Deterministic owner-privacy gate runs BEFORE Gemini to prevent accidental personal answers.
+        const ownerTask = isTaskIntent(text) ? addOwnerTask(psid, name, text) : null;
+        // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
+        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
+          const offlineReply = offlinePersonalReply(text, conv, ownerTask);
+          await sendPageReply(psid, offlineReply, 'ZEVIAN');
+          continue;
+        }
+        // When Owner is online, personal questions are routed to Owner approval.
         if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text)) {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
@@ -382,6 +462,7 @@ app.post('/webhook', async (req, res) => {
           const replyText = withEmoji(ai.suggested_reply, '🙂');
           const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
           if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
+          if (sent && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
         } else {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
@@ -417,6 +498,13 @@ if (BOT_TOKEN) {
   tgBot.setMyCommands([
     { command: 'start', description: 'ZEVIAN কন্ট্রোল প্যানেল খুলুন' },
     { command: 'status', description: 'সিস্টেম ও বটের বর্তমান অবস্থা দেখুন' },
+    { command: 'online', description: 'Owner online presence চালু করুন' },
+    { command: 'offline', description: 'Owner offline presence চালু করুন' },
+    { command: 'tasks', description: 'Owner reminder ও task দেখুন' },
+    { command: 'done', description: 'একটি task সম্পন্ন করুন' },
+    { command: 'tag', description: 'কন্টাক্টের সম্পর্ক ও tone tag করুন' },
+    { command: 'untag', description: 'কন্টাক্টের custom tag সরান' },
+    { command: 'tags', description: 'Tagged contacts দেখুন' },
     { command: 'help', description: 'কোন কমান্ড দিয়ে কী কাজ হয় তা দেখুন' },
     { command: 'pending', description: 'অপেক্ষমাণ (Pending) প্রশ্নগুলো দেখুন' },
     { command: 'inbox', description: 'সাম্প্রতিক চ্যাট ও ইউজার স্টাইল দেখুন' },
@@ -440,10 +528,11 @@ if (BOT_TOKEN) {
   const sendMenu = cid => {
     const wait = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length;
     const act = getActiveStatuses();
-    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.7 AI Control Center*\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
+    tgBot.sendMessage(cid, `🤖 *ZEVIAN v4.8 Control Center*\n• Owner Presence: ${state.ownerPresence === 'online' ? '🟢 ONLINE' : '🌙 OFFLINE'}\n• Master: ${state.config.masterActive ? '✅ ON' : '⏸ PAUSED'} | Mode: *Banglish Mirror*\n• Gemini: ${lastGeminiModel ? '✅ ' + lastGeminiModel : (lastGeminiError ? '⚠️ Error (/testgemini)' : '⏳ Not tested yet')}\n• Active Status: _${act.length ? act[0].text : 'কোনো Status নেই'}_\n• Active Chats: ${Object.keys(state.conversations).length} | Pending: ${wait} | Auto: ${state.stats.autoReplied}`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
+          [{ text: state.ownerPresence === 'online' ? '🌙 Set Offline' : '🟢 Set Online', callback_data: 'presence_toggle' }, { text: '📌 Tasks', callback_data: 'show_tasks' }],
           [{ text: state.config.masterActive ? '⏸ Pause Bot' : '▶️ Resume Bot', callback_data: 'toggle' }, { text: '📋 Pending List', callback_data: 'list_pending' }],
           [{ text: '📍 My Status', callback_data: 'show_st' }, { text: '📊 Analytics', callback_data: 'show_an' }],
           [{ text: '📖 সব কমান্ড (/help)', callback_data: 'show_help' }, { text: '🧹 Clear Memory', callback_data: 'clear_mem' }]
@@ -457,6 +546,11 @@ if (BOT_TOKEN) {
       `🎛️ *প্যানেল ও স্ট্যাটাস:*\n` +
       `• /start বা /status — মূল কন্ট্রোল প্যানেল ও লাইভ স্ট্যাটাস দেখুন\n` +
       `• /analytics — মোট ইনকামিং, AI রিপ্লাই ও মালিকের রিপ্লাই রিপোর্ট\n` +
+      `• /online — আপনি অনলাইনে; ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠাবে\n` +
+      `• /offline — আপনি অনলাইনে নেই; ZEVIAN নিজে সামলাবে\n` +
+      `• /tasks — Reminders দেখুন; /done TK-201 দিয়ে সম্পন্ন করুন\n` +
+      `• /tag PSID wife — কন্টাক্টকে Wife/Partner হিসেবে ট্যাগ করুন\n` +
+      `• /untag PSID — কাস্টম সম্পর্ক সরান; /tags — ট্যাগ লিস্ট\n` +
       `• /testgemini — Gemini AI ও Banglish Mirror মোড টেস্ট করুন\n\n` +
       `📍 *Live Owner Status (অটো-এক্সপায়ারি):*\n` +
       `• \`/setstatus আমি বাইরে যাচ্ছি\` — নতুন স্ট্যাটাস সেট করুন (অথবা সরাসরি মেসেজ লিখুন)\n` +
@@ -486,6 +580,48 @@ if (BOT_TOKEN) {
 
   tgBot.onText(/\/(start|panel|status)$/, m => isOwner(m.chat.id) && sendMenu(m.chat.id));
   tgBot.onText(/\/help/i, m => isOwner(m.chat.id) && sendHelp(m.chat.id));
+  tgBot.onText(/\/online$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    state.ownerPresence = 'online';
+    const open = state.ownerTasks.filter(t => t.status === 'OPEN');
+    open.forEach(t => { t.notifiedAt = Date.now(); });
+    tgBot.sendMessage(m.chat.id, '🟢 Owner presence: ONLINE\nএখন ব্যক্তিগত প্রশ্ন আপনার কাছে পাঠানো হবে।\n\n📌 Open Reminder: ' + open.length + '\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\n') + '\n\nসম্পন্ন হলে /done TK-201 ব্যবহার করুন 🙂');
+    sendMenu(m.chat.id);
+  });
+  tgBot.onText(/\/offline$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    state.ownerPresence = 'offline';
+    tgBot.sendMessage(m.chat.id, '🌙 Owner presence: OFFLINE\nএখন ব্যক্তিগত প্রশ্নে ZEVIAN ভদ্রভাবে জানাবে আপনি অনলাইনে নেই এবং প্রয়োজন বুঝে Reminder তৈরি করবে 🙂');
+    sendMenu(m.chat.id);
+  });
+  tgBot.onText(/\/tasks$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    const open = state.ownerTasks.filter(t => t.status === 'OPEN');
+    tgBot.sendMessage(m.chat.id, open.length ? '📌 Open Reminders (' + open.length + ')\n\n' + open.slice(0, 30).map(t => t.id + ' — ' + t.senderName + '\n' + t.title).join('\n\n') + '\n\nComplete: /done TK-201' : '✅ কোনো Open Reminder নেই 🙂');
+  });
+  tgBot.onText(/\/done\s+(TK-\d+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const task = state.ownerTasks.find(t => t.id.toUpperCase() === match[1].toUpperCase());
+    if (!task) return tgBot.sendMessage(m.chat.id, 'এই Task ID পাওয়া যায়নি।');
+    task.status = 'DONE'; task.completedAt = Date.now();
+    tgBot.sendMessage(m.chat.id, '✅ ' + task.id + ' সম্পন্ন হিসেবে চিহ্নিত হয়েছে।');
+  });
+  tgBot.onText(/\/tag\s+(\S+)\s+([\s\S]+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    const psid = match[1].trim(), raw = match[2].trim(), wife = /^(wife|bou|বউ|স্ত্রী|partner|জান)$/i.test(raw);
+    state.contactProfiles[psid] = { ...getContactProfile(psid), label: wife ? 'Wife / Partner' : raw.slice(0, 40), relationship: wife ? 'wife' : 'custom', affectionate: wife };
+    tgBot.sendMessage(m.chat.id, wife ? '💗 কন্টাক্টটি Wife/Partner হিসেবে ট্যাগ করা হয়েছে। ZEVIAN স্বাভাবিক affectionate tone ব্যবহার করবে; Owner-এর ব্যক্তিগত তথ্য বানিয়ে বলবে না।' : '🏷️ কন্টাক্ট ট্যাগ করা হয়েছে: ' + raw);
+  });
+  tgBot.onText(/\/untag\s+(\S+)/i, (m, match) => {
+    if (!isOwner(m.chat.id)) return;
+    delete state.contactProfiles[match[1].trim()];
+    tgBot.sendMessage(m.chat.id, '🏷️ কাস্টম সম্পর্ক/টোন সরানো হয়েছে।');
+  });
+  tgBot.onText(/\/tags$/i, m => {
+    if (!isOwner(m.chat.id)) return;
+    const entries = Object.entries(state.contactProfiles);
+    tgBot.sendMessage(m.chat.id, entries.length ? '🏷️ Tagged Contacts\n\n' + entries.map(([id,p]) => id + ' — ' + p.label).join('\n') : 'এখনো কোনো কন্টাক্ট ট্যাগ করা হয়নি।');
+  });
   tgBot.onText(/\/analytics/, m => isOwner(m.chat.id) && tgBot.sendMessage(m.chat.id, `📊 *ZEVIAN Analytics*\n• Incoming: ${state.stats.totalIn}\n• Outgoing: ${state.stats.totalOut}\n• Auto-Replied (AI): ${state.stats.autoReplied}\n• Escalated to Owner: ${state.stats.escalated}\n• Owner Replies: ${state.stats.ownerReplied}\n• Failed: ${state.stats.failed}`, { parse_mode: 'Markdown' }));
   tgBot.onText(/\/mystatus/, m => { if (!isOwner(m.chat.id)) return; const l = getActiveStatuses(); tgBot.sendMessage(m.chat.id, l.length ? `📍 *Active Shareable Statuses:*\n` + l.map(s => `• \`${s.id}\`: ${s.text} (${s.expiresLabel})`).join('\n') : '📍 কোনো Active Status নেই। সেট করতে লিখুন: `/setstatus আমি বাইরে যাচ্ছি`', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/clearstatus/, m => { if (!isOwner(m.chat.id)) return; state.ownerStatuses.forEach(s => { s.active = false; }); tgBot.sendMessage(m.chat.id, '🛑 সব Active Status বন্ধ করা হয়েছে।'); });
@@ -520,6 +656,8 @@ if (BOT_TOKEN) {
     if (!isOwner(cid)) return;
     const d = q.data || '';
     if (d === 'toggle') { state.config.masterActive = !state.config.masterActive; sendMenu(cid); }
+    else if (d === 'presence_toggle') { state.ownerPresence = state.ownerPresence === 'online' ? 'offline' : 'online'; if (state.ownerPresence === 'online') { const open = state.ownerTasks.filter(t => t.status === 'OPEN'); open.forEach(t => { t.notifiedAt = Date.now(); }); tgBot.sendMessage(cid, '🟢 আপনি Online। Open Reminder: ' + open.length + '\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.title).join('\n')); } else tgBot.sendMessage(cid, '🌙 আপনি Offline। ZEVIAN ব্যক্তিগত প্রশ্নগুলো ভদ্রভাবে সামলাবে।'); sendMenu(cid); }
+    else if (d === 'show_tasks') { const open = state.ownerTasks.filter(t => t.status === 'OPEN'); tgBot.sendMessage(cid, open.length ? open.map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\n\n') : 'কোনো Open Reminder নেই।'); }
     else if (d === 'show_help') { sendHelp(cid); }
     else if (d === 'clear_mem') { state.conversations = {}; tgBot.sendMessage(cid, '🧹 সব কনভারসেশন মেমোরি ক্লিয়ার করা হয়েছে।'); }
     else if (d === 'show_st') { const l = getActiveStatuses(); tgBot.sendMessage(cid, l.length ? l.map(s => `📍 ${s.id}: ${s.text} (${s.expiresLabel})`).join('\n') : '📍 কোনো Active Status নেই।'); }
@@ -537,8 +675,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.7.1', mode: 'banglish_mirror', masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.7 AI Reply Engine (Emoji + Banglish Mirror)</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.8.0', mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.8 Presence, Reminders & Relationship Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -549,4 +687,4 @@ const missingRequired = [
 if (missingRequired.length) {
   console.error('ZEVIAN security configuration missing:', missingRequired.join(', '));
 }
-app.listen(PORT, () => console.log('ZEVIAN v4.7 AI Reply Engine running on port', PORT));
+app.listen(PORT, () => console.log('ZEVIAN v4.8 Presence & Relationship Engine running on port', PORT));
