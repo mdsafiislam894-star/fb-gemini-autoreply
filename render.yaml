@@ -14,8 +14,10 @@ services:
         value: gemini-2.5-flash
       - key: FB_PAGE_ACCESS_TOKEN
         sync: false
+      - key: FB_APP_SECRET
+        sync: false
       - key: FB_VERIFY_TOKEN
-        value: safi_page_verify_2026
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_ADMIN_CHAT_ID
