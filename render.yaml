@@ -12,10 +12,10 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
-      - key: PERSONAL_BOT_ENABLED
-        value: "true"
-      - key: FB_APPSTATE_JSON
+      - key: FB_PAGE_ACCESS_TOKEN
         sync: false
+      - key: FB_VERIFY_TOKEN
+        value: safi_page_verify_2026
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_ADMIN_CHAT_ID
