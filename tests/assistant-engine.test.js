@@ -74,3 +74,7 @@ test('interprets Bangla night time as 24-hour local time', () => {
   assert.equal(task.dueAt, Date.parse('2026-11-21T16:00:00.000Z'));
   assert.equal(task.timeSpecified, true);
 });
+
+test('recognizes direct call-back requests as owner relay tasks', () => {
+  assert.equal(classifyRelayIntent('Call me tomorrow please', NOW).isRelay, true);
+});
