@@ -50,18 +50,25 @@ async function init() {
     connectionTimeoutMillis: 8000,
     ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
   });
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS zevian_state (
-      state_key TEXT PRIMARY KEY,
-      ciphertext TEXT NOT NULL,
-      nonce TEXT NOT NULL,
-      auth_tag TEXT NOT NULL,
-      schema_version INTEGER NOT NULL DEFAULT 1,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  lastError = null;
-  return true;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS zevian_state (
+        state_key TEXT PRIMARY KEY,
+        ciphertext TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        auth_tag TEXT NOT NULL,
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    lastError = null;
+    return true;
+  } catch (error) {
+    lastError = error.message;
+    await pool.end().catch(() => {});
+    pool = null;
+    throw error;
+  }
 }
 
 async function load() {
