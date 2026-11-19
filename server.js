@@ -59,7 +59,24 @@ function getContactProfile(psid) {
 
 function isTaskIntent(text) {
   const t = String(text || '').toLowerCase();
-  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol)/i.test(t);
+  return /(মনে করিয়ে|মনে করিয়ে|মনে রাখ|বলে দিও|জানিয়ে দিও|জানিয়ে দিও|ফোন দিতে বল|কল দিতে বল|আমাকে ফোন|আমায় ফোন|আমায় ফোন|call me|tell him|tell safi|remind|online ashle|online hole|safi online|অনলাইনে আসলে|স্যার ডাকছে|স্যার নাকি ডাকছে|safi sir dakche|sir dakche|safi ke phone dite bol|সাফিকে বল|সাফি কে বল|safi ke bolo|phone dite bol|কালকে.{0,20}(কলেজ|স্যার|যাবি|যাবে)|আগামীকাল.{0,20}(কলেজ|স্যার|যাবি|যাবে)|tomorrow.{0,30}(college|sir|teacher)|kalke.{0,30}(college|sir|teacher))/i.test(t);
+}
+
+function inferTaskDueAt(message) {
+  const t = String(message || '').toLowerCase();
+  const now = Date.now();
+  if (/(আজকে|আজ|today|ajke)/i.test(t)) return now + 60 * 60 * 1000;
+  if (/(কালকে|আগামীকাল|কাল|tomorrow|kalke|kal)/i.test(t)) return now + 24 * 60 * 60 * 1000;
+  if (/(পরশু|day after tomorrow|porshu)/i.test(t)) return now + 48 * 60 * 60 * 1000;
+  if (/(আগামী সপ্তাহ|next week)/i.test(t)) return now + 7 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function inferTaskPriority(message) {
+  const t = String(message || '').toLowerCase();
+  if (/(জরুরি|জরুরী|urgent|asap|এখনই|এক্ষুনি|emergency)/i.test(t)) return 'URGENT';
+  if (/(স্যার|sir|কলেজ|college|ফোন|call|মনে কর|remind|অনলাইনে আসলে)/i.test(t)) return 'HIGH';
+  return 'NORMAL';
 }
 
 function addOwnerTask(psid, senderName, message) {
@@ -70,7 +87,7 @@ function addOwnerTask(psid, senderName, message) {
     id: 'TK-' + state.taskCounter,
     psid, senderName, sourceMessage: String(message).slice(0, 1000),
     title: String(message).slice(0, 180),
-    status: 'OPEN', createdAt: Date.now(), notifiedAt: null
+    status: 'OPEN', priority: inferTaskPriority(message), dueAt: inferTaskDueAt(message), createdAt: Date.now(), notifiedAt: null, snoozedUntil: null, completedAt: null
   };
   state.ownerTasks.unshift(task);
   if (state.ownerTasks.length > 300) state.ownerTasks.length = 300;
