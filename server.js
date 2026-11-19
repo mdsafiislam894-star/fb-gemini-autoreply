@@ -430,7 +430,14 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         pushMsg(psid, 'User', text);
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
-        // Deterministic owner-privacy gate runs BEFORE Gemini to prevent accidental personal answers.
+        const ownerTask = isTaskIntent(text) ? addOwnerTask(psid, name, text) : null;
+        // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
+        if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
+          const offlineReply = offlinePersonalReply(text, conv, ownerTask);
+          await sendPageReply(psid, offlineReply, 'ZEVIAN');
+          continue;
+        }
+        // When Owner is online, personal questions are routed to Owner approval.
         if (isPersonalQuestion(text) && !statusMayAnswerQuestion(text)) {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
@@ -455,6 +462,7 @@ app.post('/webhook', async (req, res) => {
           const replyText = withEmoji(ai.suggested_reply, '🙂');
           const sent = await sendPageReply(psid, replyText, 'ZEVIAN');
           if (sent && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyText}`).catch(() => {});
+          if (sent && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
         } else {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
