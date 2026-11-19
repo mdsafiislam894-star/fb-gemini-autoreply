@@ -357,15 +357,14 @@ Instructions:
 6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
 Conversation Bubble Rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return 1–3 separate short messages in reply_parts; each array item becomes its own Messenger bubble. A natural pattern may be a short acknowledgement followed by a relevant reciprocal question, e.g. for "ki koris?" -> ["Aito bose aci 🙂", "Tui ki koris?"]; use only when contextually appropriate, never as a fixed template. Do NOT force a question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. Never exceed 3 bubbles. Every bubble must match sender script, pronoun, spelling, tone, and include a suitable emoji. Multi-bubble replies are allowed for everyone; delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Aito bose aci 🙂","Tui ki koris?"],"suggested_reply":"Aito bose aci 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
-  // 2.5 model access is restricted for many new API projects; migrate old Render settings automatically.
+  // Low-cost chat routing: Flash-Lite first; keep a same-tier fallback only.
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
-  const legacyModel = /^gemini-2\.5-/i.test(configuredModel);
-  const models = [...new Set([(!legacyModel && configuredModel) || null, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash'].filter(Boolean))];
+  const models = [...new Set([configuredModel || 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
   for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 700 } })
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 360 } })
       });
       const d = await res.json();
       if (!res.ok) {
@@ -728,7 +727,13 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/inbox/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.conversations).slice(-8); tgBot.sendMessage(m.chat.id, l.length ? l.map(c => `👤 *${c.senderName}* (\`${c.psid}\`)\n🗣️ ${c.prefs.script} | ${c.prefs.pronoun}\n└ ${c.messages[c.messages.length - 1]?.text || ''}`).join('\n\n') : '💬 কোনো চ্যাট নেই।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/history (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const c = state.conversations[match[1].trim()]; tgBot.sendMessage(m.chat.id, c ? `💬 *${c.senderName} History:*\n` + c.messages.slice(-12).map(x => `[${x.time}] *${x.role}:* ${x.text}`).join('\n') : '⚠️ এই PSID-র কোনো হিস্ট্রি পাওয়া যায়নি।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 Clear Conversation Memory', callback_data: 'clear_mem' }]] } }); });
-  tgBot.onText(/\/testgemini/, async m => { if (!isOwner(m.chat.id)) return; const r = await analyzeMessage('test_bn', 'ki koris?'); tgBot.sendMessage(m.chat.id, r ? `✅ *Gemini v5.0 OK (Banglish Mirror)!*\nModel: \`${lastGeminiModel || 'auto'}\`\nInput: \`ki koris?\`\nClass: \`${r.classification}\`\nReply: ${r.suggested_reply}` : `❌ Error: \`${lastGeminiError}\``, { parse_mode: 'Markdown' }); });
+  tgBot.onText(/\/testgemini/, async m => {
+    if (!isOwner(m.chat.id)) return;
+    const r = await analyzeMessage('test_bn', 'ki obostha?');
+    if (!r) return tgBot.sendMessage(m.chat.id, `❌ Gemini test failed: ${lastGeminiError || 'No response'}`);
+    const reply = (r.reply_parts || []).join(' | ') || r.suggested_reply || (r.requires_owner ? 'OWNER_REVIEW' : 'NO_REPLY');
+    tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\\nModel: ${lastGeminiModel || 'unknown'}\\nInput: ki obostha?\\nClass: ${r.classification}\\nPolicy: ${r.reply_policy}\\nReply: ${reply}`);
+  });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
