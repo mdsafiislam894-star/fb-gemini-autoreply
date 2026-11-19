@@ -68,3 +68,9 @@ test('proactive schedule is invalidated by a newer inbound and expires at 24 hou
   assert.equal(isProactiveScheduleValid(schedule, conversation, profile, NOW + 24 * 60 * 60 * 1000), false);
   assert.equal(makeProactiveSchedule({ relationship: 'friend', affectionate: true }, conversation, 'hello', NOW), null);
 });
+
+test('interprets Bangla night time as 24-hour local time', () => {
+  const task = classifyRelayIntent('Safi ke bole dio kalke rat 10ta e college jete', NOW);
+  assert.equal(task.dueAt, Date.parse('2026-11-21T16:00:00.000Z'));
+  assert.equal(task.timeSpecified, true);
+});
