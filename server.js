@@ -132,9 +132,8 @@ function scheduleRelationshipFollowup(psid, conv, followup, inboundAt) {
 async function processDueTaskReminders(now = Date.now()) {
   if (!tgBot || !ADMIN_CHAT_ID) return;
   for (const task of state.ownerTasks) {
+    if (!assistantEngine.isTaskReminderDue(task, now)) continue;
     const delivery = task.reminderDelivery;
-    if (task.status !== 'OPEN' || !task.dueAt || !delivery || delivery.status === 'SENT' || Number(delivery.nextAttemptAt || task.dueAt) > now) continue;
-    if (delivery.status === 'SENDING' && now - Number(delivery.attemptAt || 0) < 5 * 60 * 1000) continue;
     delivery.status = 'SENDING'; delivery.attemptAt = now;
     try {
       await tgBot.sendMessage(ADMIN_CHAT_ID, `⏰ ZEVIAN REMINDER\n\n🆔 ${task.id} | ${task.priority || 'NORMAL'}\n👤 ${task.senderName}\n📝 ${task.title}\n\n/done ${task.id} • /snooze ${task.id} 1h`);
