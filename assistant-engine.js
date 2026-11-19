@@ -10,10 +10,10 @@ const DHAKA_OFFSET_MINUTES = 360;
 function classifyActivityQuestion(message) {
   const text = String(message || '').trim();
   const t = text.toLowerCase();
-  const hasBangla = /[\\u0980-\\u09ff]/.test(text);
-  const hasBanglishCue = /\\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor)\\b/i.test(t);
-  const hasOwner = /\\b(safi|owner|sir)\\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
-  const activity = /\\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen)\\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে)/u.test(text);
+  const hasBangla = /[\u0980-\u09ff]/.test(text);
+  const hasBanglishCue = /\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor)\b/i.test(t);
+  const hasOwner = /\b(safi|owner|sir)\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
+  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে)/u.test(text);
   const script = hasBangla ? 'Bengali' : (hasBanglishCue ? 'Banglish' : 'English');
   if (hasOwner && activity) return { kind: 'owner_activity', script };
   if (!hasOwner && activity) return { kind: 'assistant_activity', script };
@@ -25,7 +25,8 @@ function buildAssistantActivityReply(script) {
   if (script === 'Bengali') return 'এইতো, তোমার সঙ্গে কথা বলছি 🙂 তুমি কী করছ?';
   return 'I’m here chatting with you 🙂 What are you up to?';
 }
-\nfunction toLatinDigits(value) { return String(value || '').replace(/[০-৯]/g, digit => String('০১২৩৪৫৬৭৮৯'.indexOf(digit))); }
+
+function toLatinDigits(value) { return String(value || '').replace(/[০-৯]/g, digit => String('০১২৩৪৫৬৭৮৯'.indexOf(digit))); }
 function dhakaDateParts(timestamp) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(timestamp));
   const result = Object.fromEntries(parts.map(part => [part.type, part.value]));
