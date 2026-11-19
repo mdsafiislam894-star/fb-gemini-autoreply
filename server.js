@@ -656,6 +656,8 @@ if (BOT_TOKEN) {
     if (!isOwner(cid)) return;
     const d = q.data || '';
     if (d === 'toggle') { state.config.masterActive = !state.config.masterActive; sendMenu(cid); }
+    else if (d === 'presence_toggle') { state.ownerPresence = state.ownerPresence === 'online' ? 'offline' : 'online'; if (state.ownerPresence === 'online') { const open = state.ownerTasks.filter(t => t.status === 'OPEN'); open.forEach(t => { t.notifiedAt = Date.now(); }); tgBot.sendMessage(cid, '🟢 আপনি Online। Open Reminder: ' + open.length + '\\n' + open.slice(0, 15).map(t => t.id + ' — ' + t.title).join('\\n')); } else tgBot.sendMessage(cid, '🌙 আপনি Offline। ZEVIAN ব্যক্তিগত প্রশ্নগুলো ভদ্রভাবে সামলাবে।'); sendMenu(cid); }
+    else if (d === 'show_tasks') { const open = state.ownerTasks.filter(t => t.status === 'OPEN'); tgBot.sendMessage(cid, open.length ? open.map(t => t.id + ' — ' + t.senderName + ': ' + t.title).join('\\n\\n') : 'কোনো Open Reminder নেই।'); }
     else if (d === 'show_help') { sendHelp(cid); }
     else if (d === 'clear_mem') { state.conversations = {}; tgBot.sendMessage(cid, '🧹 সব কনভারসেশন মেমোরি ক্লিয়ার করা হয়েছে।'); }
     else if (d === 'show_st') { const l = getActiveStatuses(); tgBot.sendMessage(cid, l.length ? l.map(s => `📍 ${s.id}: ${s.text} (${s.expiresLabel})`).join('\n') : '📍 কোনো Active Status নেই।'); }
