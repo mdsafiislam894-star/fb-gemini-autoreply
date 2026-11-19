@@ -71,9 +71,8 @@ function fallbackUserReply(script, ownerNotified) {
 
 function isPersonalQuestion(text) {
   const t = String(text || '').toLowerCase();
-  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\\b(where are you|what are you doing|are you coming|will you come|have you eaten|can i call you|when are you free|ki koris|ki koros|ki korteso|kothay acho|kothay aso|kalke jaba|kalke asba|college jaba|khaiso|khaichis)\\b/i.test(t);
+  return /(কোথায়|কোথায়).{0,8}(আছ|আছেন|আছো)|কলেজ.{0,18}(যাবি|যাবে|যাবেন|যাব|যাচ্ছ)|(?:আজ|কাল|আগামীকাল).{0,20}(যাবি|যাবে|যাবেন|যাব|আসবি|আসবে|আসব)|খেয়েছ|খেয়েছ|খাইছ|ফোন.{0,12}(দিব|দেব|কর)|কখন.{0,12}(আস|যাব)|\b(where are you|what are you doing|are you coming|will you come|have you eaten|can i call you|when are you free|ki koris|ki koros|ki korteso|kothay acho|kothay aso|kalke jaba|kalke asba|college jaba|khaiso|khaichis)\b/i.test(t);
 }
-
 function statusMayAnswerQuestion(text) {
   const q = String(text || '').toLowerCase();
   return getActiveStatuses().some(item => {
@@ -160,29 +159,23 @@ function getConv(psid, name) {
 }
 
 function detectStyle(text, conv) {
-  const t = (text || '').trim(), low = t.toLowerCase();
+  const t = String(text || '').trim(), low = t.toLowerCase();
   const hasBn = /[\u0980-\u09FF]/.test(t);
   const hasEn = /[a-zA-Z]{2,}/.test(t);
-  const hasBanglish = /\b(ki|koris|koros|korteso|kemon|acho|aso|valo|bhalo|tui|tumi|apni|kothay|koi|khobor|kalke|ajke|khaisi|khaichi|khaicis|khaiso|jabo|jaimu|jaba|jabi|bujhi|w8|plz|hmm|accha|bhai)\b/.test(low);
+  const hasBanglish = /\b(ami|amar|amr|tumi|tomar|tmr|tui|tor|ki|kno|keno|kor|koro|koris|koros|korteso|korcho|kemon|acho|aso|ase|ache|nai|na|valo|bhalo|kothay|koi|khobor|kalke|ajke|khaiso|khaichis|jabo|jabi|jaba|jao|asbo|asbi|asba|hobe|hoise|bol|bolo|bolchi|thak|chup|kichu|bujhi|accha|acha|diba|dibo)\b/.test(low);
   if (hasBn && hasEn) conv.prefs.script = 'Mixed (Bangla+English)';
   else if (hasBn) conv.prefs.script = 'Bengali Script';
   else if (hasBanglish) conv.prefs.script = 'Banglish (Romanized Bengali)';
   else if (hasEn) conv.prefs.script = 'English';
-
-  if (/\b(tui|tor|koris|koros|achis|khaichis|khaicis|jabi|asbi)\b/.test(low) || /(তুই|তোর|করিস|আছিস|খেয়েছিস|খেয়েছিস|খাইছিস|যাবি|আসবি)/.test(t)) {
-    conv.prefs.pronoun = 'তুই (casual)';
-  } else if (/\b(apni|apnar|korchen|achen)\b/.test(low) || /(আপনি|আপনার|করছেন|আছেন)/.test(t)) {
-    conv.prefs.pronoun = 'আপনি (formal)';
-  } else if (/\b(tumi|tomar|korcho|acho|jaba|jabe)\b/.test(low) || /(তুমি|তোমার|করছ|আছো|যাবে)/.test(t)) {
-    conv.prefs.pronoun = 'তুমি (friendly)';
-  }
+  if (/\b(tui|tor|koris|koros|achis|khaichis|khaicis|jabi|asbi)\b/.test(low) || /(তুই|তোর|করিস|আছিস|খেয়েছিস|খেয়েছিস|খাইছিস|যাবি|আসবি)/u.test(t)) conv.prefs.pronoun = 'তুই (casual)';
+  else if (/\b(apni|apnar|korchen|achen)\b/.test(low) || /(আপনি|আপনার|করছেন|আছেন)/u.test(t)) conv.prefs.pronoun = 'আপনি (formal)';
+  else if (/\b(tumi|tomar|korcho|acho|jaba|jabe)\b/.test(low) || /(তুমি|তোমার|করছ|আছো|যাবে)/u.test(t)) conv.prefs.pronoun = 'তুমি (friendly)';
   const tokens = low.match(/\b(khaisi|khaichi|khaicis|khaiso|jabo|jaimu|koris|koros|valo|bhalo)\b/g);
   if (tokens) {
     tokens.forEach(tk => { if (!conv.prefs.spellingNotes.includes(tk)) conv.prefs.spellingNotes.push(tk); });
     if (conv.prefs.spellingNotes.length > 8) conv.prefs.spellingNotes = conv.prefs.spellingNotes.slice(-8);
   }
 }
-
 function pushMsg(psid, role, text) {
   const c = getConv(psid);
   if (role === 'User') { c.lastUserAt = Date.now(); detectStyle(text, c); }
