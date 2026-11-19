@@ -23,11 +23,11 @@ function parseDueDate(text, now) {
 }
 function parseClockTime(text) {
   const t = toLatinDigits(text).toLowerCase();
-  const match = t.match(/(?:\b(সকাল|দুপুর|বিকেল|সন্ধ্যা|রাত|am|pm)\s*)?(\d{1,2})(?::(\d{2}))?\s*(টা|টায়|টার|ta|tay|am|pm)?\b/i);
+  const match = t.match(/(?:(সকাল|দুপুর|বিকেল|সন্ধ্যা|রাত|shokal|sokal|dupur|bikel|shondha|rat|raat|am|pm)\s*)?(\d{1,2})(?::(\d{2}))?\s*(টা|টায়|টার|ta|tay|am|pm)?\b/i);
   if (!match) return null;
   let hour = Number(match[2]); const minute = Number(match[3] || 0), marker = `${match[1] || ''} ${match[4] || ''}`.trim();
   if (minute > 59 || hour > 23 || hour < 0) return null;
-  const afternoon = /(দুপুর|বিকেল|সন্ধ্যা|রাত|pm)/i.test(marker), morning = /(সকাল|am)/i.test(marker);
+  const afternoon = /(দুপুর|বিকেল|সন্ধ্যা|রাত|dupur|bikel|shondha|rat|raat|pm)/i.test(marker), morning = /(সকাল|shokal|sokal|am)/i.test(marker);
   if (afternoon && hour < 12) hour += 12; if (morning && hour === 12) hour = 0;
   return hour > 23 ? null : { hour, minute };
 }
