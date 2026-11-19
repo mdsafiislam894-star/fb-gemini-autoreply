@@ -330,7 +330,10 @@ app.post('/webhook', async (req, res) => {
         const psid = ev.sender?.id, mid = ev.message?.mid;
         if (!psid || psid === pageId || ev.message?.is_echo || state.blockedUsers.includes(psid)) continue;
         if (mid && processedIds.has(mid)) continue;
-        if (mid) processedIds.add(mid);
+        if (mid) {
+          processedIds.add(mid);
+          if (processedIds.size > 5000) processedIds.delete(processedIds.values().next().value);
+        }
         state.stats.totalIn += 1;
         const name = await fetchSenderName(psid);
         const conv = getConv(psid, name);
@@ -391,6 +394,7 @@ app.post('/webhook', async (req, res) => {
           const cid = ch.value.comment_id, fid = ch.value.from?.id, fn = ch.value.from?.name || 'Friend', ct = ch.value.message || '';
           if (!cid || fid === pageId || !ct || processedIds.has(cid)) continue;
           processedIds.add(cid);
+          if (processedIds.size > 5000) processedIds.delete(processedIds.values().next().value);
           const ai = await analyzeMessage(`c_${fid || cid}`, `[Post Comment]: ${ct}`);
           const rep = withEmoji((ai && ai.suggested_reply) || `ধন্যবাদ ${fn}! কীভাবে সাহায্য করতে পারি?`, '😊');
           if (state.config.commentReplyEnabled) await callGraph(`${cid}/comments`, { message: `ধন্যবাদ ${fn}! আপনার ইনবক্সে বিস্তারিত পাঠিয়ে দেওয়া হয়েছে 😊` });
