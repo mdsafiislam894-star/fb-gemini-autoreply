@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
+const persistence = require('./persistence');
 
 const app = express();
 app.use(cors());
@@ -34,6 +35,7 @@ const state = {
   ownerTasks: [],
   contactProfiles: {},
   taskCounter: 200,
+  taskSequence: 0,
   kbItems: [
     { id: 'kb-1', question: 'ZEVIAN কী?', answer: 'ZEVIAN হলো এই ফেসবুক পেজের এআই পার্সোনাল মেসেঞ্জার অ্যাসিস্ট্যান্ট, যে স্বাভাবিকভাবে কথা বলে এবং ব্যক্তিগত প্রশ্নগুলো সরাসরি Owner-এর কাছে পৌঁছে দেয়।' }
   ],
@@ -492,7 +494,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 if (BOT_TOKEN) {
-  tgBot = new TelegramBot(BOT_TOKEN, { polling: true });
+  tgBot = new TelegramBot(BOT_TOKEN, { polling: false });
 
   // Register native Telegram Slash Command Menu automatically!
   tgBot.setMyCommands([
@@ -675,8 +677,8 @@ if (BOT_TOKEN) {
   });
 }
 
-app.get('/health', (req, res) => res.json({ ok: true, version: '4.8.0', mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
-app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.8 Presence, Reminders & Relationship Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
+app.get('/health', (req, res) => res.json({ ok: true, version: '4.9.0', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v4.9 Persistent Memory Engine</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 const PORT = process.env.PORT || 3000;
 const missingRequired = [
@@ -687,4 +689,35 @@ const missingRequired = [
 if (missingRequired.length) {
   console.error('ZEVIAN security configuration missing:', missingRequired.join(', '));
 }
-app.listen(PORT, () => console.log('ZEVIAN v4.8 Presence & Relationship Engine running on port', PORT));
+async function bootstrap() {
+  try {
+    const connected = await persistence.init();
+    if (connected) {
+      const saved = await persistence.load();
+      if (saved && typeof saved === 'object') {
+        for (const key of Object.keys(state)) {
+          if (Object.prototype.hasOwnProperty.call(saved, key)) state[key] = saved[key];
+        }
+        console.log('[persistence] Encrypted owner state restored from PostgreSQL');
+      } else {
+        console.log('[persistence] New encrypted state store initialized');
+        await persistence.save(state);
+      }
+    }
+  } catch (error) {
+    console.error('[persistence] Initialization failed; running in memory-only mode:', error.message);
+  }
+  if (tgBot) {
+    try { await tgBot.startPolling(); }
+    catch (error) { console.error('[telegram] Polling start failed:', error.message); }
+  }
+  setInterval(() => { persistence.save(state); }, 1500).unref();
+  app.listen(PORT, () => console.log('ZEVIAN v4.9 Persistent Memory Engine running on port', PORT));
+}
+process.on('SIGTERM', async () => {
+  try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
+});
+process.on('SIGINT', async () => {
+  try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
+});
+bootstrap();
