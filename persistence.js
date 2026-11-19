@@ -123,4 +123,4 @@ function status() {
   };
 }
 
-module.exports = { init, load, save, close, status };
+module.exports = { init, load, save, close, status, __test: { encrypt, decrypt } };
