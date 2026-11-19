@@ -77,3 +77,26 @@ A safe `.env.example` template is included. Replace the blank values locally and
 ## Health endpoint diagnostics
 
 The `/health` response reports `geminiStatus` as `not_tested`, `ready`, or `error`. A fresh process starts as `not_tested`; this is not the same as a failed Gemini request. Run `/testgemini` in the authorized Telegram owner chat to test the live API key and model chain.
+
+
+## ZEVIAN v4.8 — Presence, reminders and relationship profiles
+
+### Owner presence
+- `/online`: set the owner presence to online. Personal questions without a directly relevant approved status are routed to the owner for approval in Telegram.
+- `/offline`: set the owner presence to offline. Personal questions receive a transparent, language-matched offline response rather than being left unanswered.
+- Presence defaults to offline after a process restart; explicitly send `/online` when available.
+
+### Owner reminders
+- ZEVIAN recognizes explicit requests to pass along a message, ask the owner to call someone, or remind the owner about a schedule/important message.
+- It creates a task with a unique ID (for example `TK-201`) and source sender/message.
+- `/tasks` lists open reminders; `/done TK-201` marks one complete.
+- `/online` surfaces open reminders to the owner.
+
+### Contact relationship profiles
+- `/tag PSID wife` (or `bou`, `বউ`, `partner`) marks a contact as an owner-designated wife/partner profile.
+- The assistant uses a warm, affectionate, natural style for that contact and may send at most one optional follow-up after a reply, with a six-hour per-contact cooldown and only inside Meta's standard 24-hour messaging window.
+- `/tag PSID friend` or another label sets a custom label; `/untag PSID` removes it; `/tags` lists tagged contacts.
+- Relationship tone does not authorize ZEVIAN to invent the owner's location, plans, food, or decisions, or to impersonate the owner.
+
+### Important persistence limitation
+Presence, reminders, relationship tags, conversations, and pending replies are currently in process memory. They are lost on a Render restart/redeploy. Durable storage is a separate required upgrade before relying on reminders as the only copy of important information.
