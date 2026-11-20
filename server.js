@@ -13,8 +13,6 @@ app.use(cors());
 app.use(express.json({ limit: '3mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const TELEGRAM_WEBHOOK_BASE = (process.env.TELEGRAM_WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\\/$/, '');
-const TELEGRAM_WEBHOOK_SECRET = BOT_TOKEN ? crypto.createHmac('sha256', BOT_TOKEN).update('ZEVIAN_TELEGRAM_WEBHOOK_V1').digest('hex') : '';
 app.post('/telegram/webhook', async (req, res) => {
   if (!TELEGRAM_WEBHOOK_SECRET || req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) return res.sendStatus(403);
   if (!tgBot || !req.body || typeof req.body !== 'object') return res.sendStatus(503);
@@ -25,6 +23,8 @@ app.post('/telegram/webhook', async (req, res) => {
 const GRAPH_VERSION = 'v21.0';
 const ADMIN_CHAT_ID = (process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim();
 const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+const TELEGRAM_WEBHOOK_BASE = (process.env.TELEGRAM_WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\\/$/, '');
+const TELEGRAM_WEBHOOK_SECRET = BOT_TOKEN ? crypto.createHmac('sha256', BOT_TOKEN).update('ZEVIAN_TELEGRAM_WEBHOOK_V1').digest('hex') : '';
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const PAGE_TOKEN = (process.env.FB_PAGE_ACCESS_TOKEN || '').trim();
 const APP_SECRET = (process.env.FB_APP_SECRET || '').trim();
