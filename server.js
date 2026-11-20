@@ -803,7 +803,7 @@ if (BOT_TOKEN) {
 
 app.get('/privacy', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Privacy Policy</h2><p>This Messenger assistant processes messages solely to provide automated replies and task reminders for the page owner. No data is sold or shared with third parties.</p></body></html>'));
 app.get('/terms', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Terms of Service</h2><p>By messaging this page, you agree to receive automated and owner-assisted responses.</p></body></html>'));
-app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.1', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.2', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
 app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.1.1 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 // Runtime diagnostics enabled in v5.1.1.
@@ -850,8 +850,19 @@ async function bootstrap() {
     if (TELEGRAM_WEBHOOK_BASE) {
       const webhookUrl = TELEGRAM_WEBHOOK_BASE + '/telegram/webhook';
       try {
-        await tgBot.setWebHook(webhookUrl, { secret_token: TELEGRAM_WEBHOOK_SECRET, drop_pending_updates: false });
-        console.log('[telegram] Webhook mode enabled; long polling disabled');
+        let webhookReady = false;
+        for (let attempt = 1; attempt <= 5 && !webhookReady; attempt += 1) {
+          try {
+            await tgBot.setWebhook(webhookUrl, { secret_token: TELEGRAM_WEBHOOK_SECRET, drop_pending_updates: false });
+            webhookReady = true;
+          } catch (error) {
+            const conflict = /409 Conflict/.test(String(error && error.message || error));
+            if (!conflict || attempt === 5) throw error;
+            console.warn('[telegram] Webhook setup conflict; retrying', attempt);
+            await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
+          }
+        }
+        if (webhookReady) console.log('[telegram] Webhook mode enabled; long polling disabled');
       } catch (error) { console.error('[telegram] Webhook setup failed:', error.message); }
     } else {
       try { await tgBot.startPolling(); console.log('[telegram] Local polling mode enabled'); }
