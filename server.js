@@ -503,6 +503,11 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         console.info('[webhook] inbound text accepted', JSON.stringify({ sender: String(psid).slice(-4), messageId: mid || null, length: text.length }));
         pushMsg(psid, 'User', text);
+        const greetingIntent = assistantEngine.classifyGreeting(text);
+        if (greetingIntent.kind === 'greeting') {
+          await sendPageReply(psid, assistantEngine.buildGreetingReply(greetingIntent.script), 'ZEVIAN');
+          continue;
+        }
         const activityIntent = assistantEngine.classifyActivityQuestion(text);
         if (activityIntent.kind === 'assistant_activity') {
           await sendPageReply(psid, assistantEngine.buildAssistantActivityReply(activityIntent.script, text), 'ZEVIAN');
