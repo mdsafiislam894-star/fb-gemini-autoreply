@@ -13,7 +13,7 @@ function classifyActivityQuestion(message) {
   const hasBangla = /[\u0980-\u09ff]/.test(text);
   const hasBanglishCue = /\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor|koi|kothay|achis|achos|acho|aso)\b/i.test(t);
   const hasOwner = /\b(safi|owner|sir)\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
-  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|kemon|how are you|koi|kothay|achis|achos|acho|aso|where are you)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে|কোথায় আছ|কোথায় আছ|কই আছ)/u.test(text);
+  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|kemon|how are you|koi|kothay|achis|achos|acho|aso|where are you)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে|কেমন আছ|কেমন আছো|কেমন আছেন|ভালো আছ|ভালো আছো|কোথায়|কোথায়|কই)/u.test(text);
   const script = hasBangla ? 'Bengali' : (hasBanglishCue ? 'Banglish' : 'English');
   if (hasOwner && activity) return { kind: 'owner_activity', script };
   if (!hasOwner && activity) return { kind: 'assistant_activity', script };
@@ -36,11 +36,24 @@ function buildGreetingReply(script) {
 }
 
 function buildAssistantActivityReply(script, message = '') {
-  const t = String(message || '').toLowerCase();
-  const asksLocation = /\b(koi|kothay|where are you)\b/i.test(t) || /(কোথায় আছ|কোথায় আছ|কই আছ)/u.test(t);
-  if (script === 'Banglish') return asksLocation ? 'Ei to, ekhanei achi 🙂' : 'Ei to, tomar sathe kotha bolchi 🙂';
-  if (script === 'Bengali') return asksLocation ? 'এইতো, এখানেই আছি 🙂' : 'এইতো, তোমার সঙ্গে কথা বলছি 🙂';
-  return asksLocation ? 'I’m right here 🙂' : 'I’m here chatting with you 🙂';
+  const text = String(message || '');
+  const t = text.toLowerCase();
+  const asksLocation = /\b(koi|kothay|where are you)\b/i.test(t) || /(কোথায় আছ|কোথায় আছ|কই আছ)/u.test(text);
+  const asksWellbeing = /\b(kemon|how are you|obostha|khobor)\b/i.test(t) || /(কেমন আছ|কেমন আছো|কেমন আছেন|ভালো আছ|ভালো আছো)/u.test(text);
+
+  if (script === 'Banglish') {
+    if (asksLocation) return 'Ei to, ekhanei achi 🙂';
+    if (asksWellbeing) return 'Ei to bhalo achi, tumi kemon acho? 🙂';
+    return 'Ei to, tomar sathe kotha bolchi 🙂';
+  }
+  if (script === 'Bengali') {
+    if (asksLocation) return 'এইতো, এখানেই আছি 🙂';
+    if (asksWellbeing) return 'ভালো আছি, তুমি কেমন আছো? 🙂';
+    return 'এইতো, তোমার সঙ্গে কথা বলছি 🙂';
+  }
+  if (asksLocation) return 'I’m right here 🙂';
+  if (asksWellbeing) return 'I’m doing well, how about you? 🙂';
+  return 'I’m here chatting with you 🙂';
 }
 
 function toLatinDigits(value) { return String(value || '').replace(/[০-৯]/g, digit => String('০১২৩৪৫৬৭৮৯'.indexOf(digit))); }

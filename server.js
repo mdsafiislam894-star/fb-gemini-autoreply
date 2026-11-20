@@ -57,7 +57,8 @@ const state = {
   blockedUsers: [],
   stats: { totalIn: 0, totalOut: 0, autoReplied: 0, escalated: 0, ownerReplied: 0, failed: 0 },
   pendingCounter: 1000,
-  statusCounter: 100
+  statusCounter: 100,
+  lastGraphError: null
 };
 
 const PERSONAL_CUES = [
@@ -266,19 +267,218 @@ function verifySig(req) {
   return received.length === expected.length && crypto.timingSafeEqual(received, expected);
 }
 
-async function callGraph(endpoint, payload) {
-  if (!PAGE_TOKEN) return { error: 'Missing token' };
+function classifyGraphError(errorObj, httpStatus) {
+  if (!errorObj) {
+    if (httpStatus >= 500 && httpStatus <= 599) {
+      return { category: 'TRANSIENT_ERROR', retryable: true, code: httpStatus, subcode: null, type: 'HTTP_SERVER_ERROR', message: `HTTP ${httpStatus} server error`, action: 'Retry once with backoff' };
+    }
+    return { category: 'UNKNOWN_ERROR', retryable: false, code: httpStatus || 0, subcode: null, type: 'HTTP_ERROR', message: `HTTP ${httpStatus || 'unknown'}`, action: 'Inspect server logs' };
+  }
+
+  const code = Number(errorObj.code || 0);
+  const subcode = Number(errorObj.error_subcode || 0);
+  const type = String(errorObj.type || '');
+  const message = String(errorObj.message || '');
+  const isTransient = Boolean(errorObj.is_transient);
+
+  // 1. Transient / Server errors (Safe to retry with backoff)
+  if (isTransient || code === 1 || code === 2 || (httpStatus >= 500 && httpStatus <= 599)) {
+    return { category: 'TRANSIENT_ERROR', retryable: true, code, subcode, type, message, action: 'Retry once with backoff' };
+  }
+
+  // 2. Token invalid / expired
+  if (code === 190) {
+    return { category: 'TOKEN_INVALID', retryable: false, code, subcode, type, message, action: 'Re-generate Facebook Page Access Token in Meta for Developers' };
+  }
+
+  // 3. Rate limited
+  if (code === 4 || code === 17 || code === 613) {
+    return { category: 'RATE_LIMITED', retryable: false, code, subcode, type, message, action: 'Reduce request rate; account/page is temporarily rate limited' };
+  }
+
+  // 4. Messaging window violation (outside 24 hours standard window)
+  if (code === 10 && (subcode === 2018278 || /outside.*allowed.*window|24.*hour/i.test(message))) {
+    return { category: 'MESSAGING_WINDOW_EXPIRED', retryable: false, code, subcode, type, message, action: 'Cannot reply outside standard 24-hour messaging window without Message Tags' };
+  }
+
+  // 5. Page temporarily restricted from sending messages (subcode 1893063)
+  if (code === 10 && (subcode === 1893063 || /temporarily restricted|restriction/i.test(message))) {
+    return {
+      category: 'PAGE_MESSAGING_RESTRICTED',
+      retryable: false,
+      code,
+      subcode,
+      type,
+      message,
+      action: 'Check Meta Business Suite / Account Quality. Page is restricted from automated messaging or App in Dev mode lacks tester role for this user.'
+    };
+  }
+
+  // 6. Permission / Dev Mode / App Role errors
+  if (code === 10 || code === 200 || subcode === 2018001 || subcode === 2018028 || /permission/i.test(message)) {
+    return {
+      category: 'PERMISSION_ERROR',
+      retryable: false,
+      code,
+      subcode,
+      type,
+      message,
+      action: 'Ensure App has pages_messaging permission. In Development Mode, recipient must be added under App Roles.'
+    };
+  }
+
+  // 7. Invalid recipient or parameter
+  if (code === 100) {
+    return { category: 'INVALID_PARAMETER', retryable: false, code, subcode, type, message, action: 'Verify recipient PSID and payload format' };
+  }
+
+  return { category: 'POLICY_OR_CLIENT_ERROR', retryable: false, code, subcode, type, message, action: 'Review Meta Platform Terms and Messaging Policies' };
+}
+
+async function diagnoseMetaApi() {
+  if (!PAGE_TOKEN) {
+    return { ok: false, error: 'FB_PAGE_ACCESS_TOKEN is missing or empty' };
+  }
+
+  const result = {
+    ok: true,
+    graphVersion: GRAPH_VERSION,
+    hasToken: Boolean(PAGE_TOKEN),
+    page: null,
+    permissions: [],
+    hasPagesMessaging: false,
+    subscribedFields: [],
+    lastGraphError: state.lastGraphError || null
+  };
+
   try {
-    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${endpoint}?access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    const pageRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id,name,category&access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
+      signal: AbortSignal.timeout(10000)
     });
-    const d = await res.json();
-    if (d && d.error) {
+    const pageData = await pageRes.json().catch(() => null);
+    if (!pageRes.ok || pageData?.error) {
+      result.ok = false;
+      result.pageError = pageData?.error?.message || `HTTP ${pageRes.status}`;
+      result.pageErrorCode = pageData?.error?.code;
+      result.pageErrorSubcode = pageData?.error?.error_subcode;
+      return result;
+    }
+    result.page = { id: pageData.id, name: pageData.name, category: pageData.category };
+
+    const permRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/me/permissions?access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
+      signal: AbortSignal.timeout(10000)
+    });
+    const permData = await permRes.json().catch(() => null);
+    if (permData?.data && Array.isArray(permData.data)) {
+      result.permissions = permData.data
+        .filter(p => p.status === 'granted')
+        .map(p => p.permission);
+      result.hasPagesMessaging = result.permissions.includes('pages_messaging');
+    }
+
+    const subRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/me/subscribed_apps?fields=subscribed_fields&access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
+      signal: AbortSignal.timeout(10000)
+    });
+    const subData = await subRes.json().catch(() => null);
+    if (subData?.data && Array.isArray(subData.data)) {
+      result.subscribedFields = subData.data.flatMap(app => app.subscribed_fields || []);
+    }
+
+    return result;
+  } catch (err) {
+    result.ok = false;
+    result.error = err.message;
+    return result;
+  }
+}
+
+async function callGraph(endpoint, payload, options = {}) {
+  if (!PAGE_TOKEN) return { error: 'Missing token' };
+  const correlationId = options.correlationId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const retryTransient = options.retryTransient !== false;
+  const maxAttempts = retryTransient ? 2 : 1;
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${endpoint}?access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || (d && d.error)) {
+        const errorObj = d?.error;
+        const classified = classifyGraphError(errorObj, res.status);
+        console.error('[messenger] Graph API rejected request:', JSON.stringify({
+          correlationId,
+          endpoint,
+          status: res.status,
+          category: classified.category,
+          code: classified.code,
+          subcode: classified.subcode,
+          type: classified.type,
+          message: classified.message,
+          fbtrace_id: errorObj?.fbtrace_id || null,
+          action: classified.action,
+          attempt
+        }));
+
+        state.lastGraphError = {
+          timestamp: new Date().toISOString(),
+          correlationId,
+          endpoint,
+          category: classified.category,
+          code: classified.code,
+          subcode: classified.subcode,
+          message: classified.message,
+          fbtrace_id: errorObj?.fbtrace_id || null,
+          action: classified.action
+        };
+
+        if (classified.retryable && attempt < maxAttempts) {
+          console.info(`[messenger] Retrying transient error (${correlationId}) in 600ms...`);
+          await new Promise(r => setTimeout(r, 600));
+          continue;
+        }
+
+        state.stats.failed += 1;
+        return d || { error: classified.message || `HTTP ${res.status}` };
+      }
+
+      state.stats.totalOut += 1;
+      return d;
+    } catch (e) {
+      const isAbort = e.name === 'TimeoutError' || e.name === 'AbortError';
+      const isTransient = isAbort || /network|fetch|ECONNRESET|ETIMEDOUT/i.test(e.message);
+      console.error('[messenger] Graph API network error:', JSON.stringify({
+        correlationId,
+        endpoint,
+        error: e.message,
+        isTransient,
+        attempt
+      }));
+
+      state.lastGraphError = {
+        timestamp: new Date().toISOString(),
+        correlationId,
+        endpoint,
+        category: isTransient ? 'TRANSIENT_NETWORK_ERROR' : 'NETWORK_ERROR',
+        message: e.message
+      };
+
+      if (isTransient && attempt < maxAttempts) {
+        console.info(`[messenger] Retrying transient network error (${correlationId}) in 600ms...`);
+        await new Promise(r => setTimeout(r, 600));
+        continue;
+      }
+
       state.stats.failed += 1;
-      console.error('[messenger] Graph API rejected request:', JSON.stringify({ code: d.error.code, subcode: d.error.error_subcode, type: d.error.type, message: d.error.message }));
-    } else state.stats.totalOut += 1;
-    return d;
-  } catch (e) { state.stats.failed += 1; return { error: e.message }; }
+      return { error: e.message };
+    }
+  }
 }
 
 async function fetchSenderName(psid) {
@@ -434,20 +634,24 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
   }
 }
 
-async function sendOwnerReply(psid, text, pid = null) {
+async function sendOwnerReply(psid, text, pid = null, options = {}) {
   const safeText = withEmoji(text, '🙂');
-  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } }, options);
   if (res && res.message_id) {
-    pushMsg(psid, 'Owner', safeText); state.stats.ownerReplied += 1;
-    if (pid && state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'ANSWERED'; state.pendingReplies[pid].ownerReply = safeText; }
+    pushMsg(psid, 'Owner', safeText);
+    state.stats.ownerReplied += 1;
+    if (pid && state.pendingReplies[pid]) {
+      state.pendingReplies[pid].status = 'ANSWERED';
+      state.pendingReplies[pid].ownerReply = safeText;
+    }
     return true;
   }
   return false;
 }
 
-async function sendPageReply(psid, text, role = 'ZEVIAN') {
+async function sendPageReply(psid, text, role = 'ZEVIAN', options = {}) {
   const safeText = withEmoji(text, '🙂');
-  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } });
+  const res = await callGraph('me/messages', { recipient: { id: psid }, message: { text: safeText } }, options);
   if (res && res.message_id) {
     pushMsg(psid, role, safeText);
     if (role === 'ZEVIAN') state.stats.autoReplied += 1;
@@ -456,12 +660,12 @@ async function sendPageReply(psid, text, role = 'ZEVIAN') {
   return false;
 }
 
-async function sendPageReplySequence(psid, parts, role = 'ZEVIAN') {
+async function sendPageReplySequence(psid, parts, role = 'ZEVIAN', options = {}) {
   const clean = Array.isArray(parts) ? parts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 1) : [];
   if (!clean.length) return { sent: 0, complete: true };
   let sent = 0;
   for (const part of clean) {
-    const ok = await sendPageReply(psid, part, role);
+    const ok = await sendPageReply(psid, part, role, options);
     if (!ok) return { sent, complete: false };
     sent += 1;
   }
@@ -598,6 +802,7 @@ if (BOT_TOKEN) {
   // Register native Telegram Slash Command Menu automatically!
   tgBot.setMyCommands([
     { command: 'start', description: 'ZEVIAN কন্ট্রোল প্যানেল খুলুন' },
+    { command: 'testmeta', description: 'Meta Graph API ও পেজ পারমিশন টেস্ট করুন' },
     { command: 'status', description: 'সিস্টেম ও বটের বর্তমান অবস্থা দেখুন' },
     { command: 'online', description: 'Owner online presence চালু করুন' },
     { command: 'offline', description: 'Owner offline presence চালু করুন' },
@@ -758,6 +963,34 @@ if (BOT_TOKEN) {
     const reply = (r.reply_parts || []).join(' | ') || r.suggested_reply || (r.requires_owner ? 'OWNER_REVIEW' : 'NO_REPLY');
     tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\nModel: ${lastGeminiModel || 'unknown'}\nInput: ki obostha?\nClass: ${r.classification}\nPolicy: ${r.reply_policy}\nReply: ${reply}`);
   });
+  tgBot.onText(/\/testmeta/, async m => {
+    if (!isOwner(m.chat.id)) return;
+    tgBot.sendMessage(m.chat.id, '🔍 Meta Graph API ডায়াগনস্টিক টেস্ট চলছে...');
+    const diag = await diagnoseMetaApi();
+    if (!diag.hasToken) {
+      return tgBot.sendMessage(m.chat.id, '❌ FB_PAGE_ACCESS_TOKEN সেট করা নেই!');
+    }
+    if (!diag.page) {
+      return tgBot.sendMessage(m.chat.id, `❌ Token দিয়ে Page এক্সেস করা যাচ্ছে না:\nCode: ${diag.pageErrorCode}\nSubcode: ${diag.pageErrorSubcode || 'N/A'}\nMessage: ${diag.pageError}`);
+    }
+    const statusLines = [
+      `📊 *Meta Graph API Diagnostics*`,
+      `📄 Page: *${diag.page.name}*`,
+      `🆔 Page ID: \`${diag.page.id}\``,
+      `🔑 pages_messaging: ${diag.hasPagesMessaging ? '✅ GRANTED' : '⚠️ NOT GRANTED'}`,
+      `📋 Permissions: ${diag.permissions.length ? diag.permissions.join(', ') : 'none'}`,
+      `🔔 Webhook Fields: ${diag.subscribedFields.length ? diag.subscribedFields.join(', ') : 'none'}`
+    ];
+    if (diag.lastGraphError) {
+      statusLines.push(`\n⚠️ *Last Graph Error:*`);
+      statusLines.push(`Code: ${diag.lastGraphError.code} (Subcode: ${diag.lastGraphError.subcode || 'none'})`);
+      statusLines.push(`Category: ${diag.lastGraphError.category}`);
+      statusLines.push(`Action: ${diag.lastGraphError.action}`);
+    } else {
+      statusLines.push('\n✨ No Graph API errors encountered.');
+    }
+    tgBot.sendMessage(m.chat.id, statusLines.join('\n'), { parse_mode: 'Markdown' });
+  });
   tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
@@ -805,7 +1038,31 @@ if (BOT_TOKEN) {
 
 app.get('/privacy', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Privacy Policy</h2><p>This Messenger assistant processes messages solely to provide automated replies and task reminders for the page owner. No data is sold or shared with third parties.</p></body></html>'));
 app.get('/terms', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Terms of Service</h2><p>By messaging this page, you agree to receive automated and owner-assisted responses.</p></body></html>'));
-app.get('/health', (req, res) => res.json({ ok: true, version: '5.1.2', persistence: persistence.status(), mode: 'banglish_mirror', ownerPresence: state.ownerPresence, openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length, taggedContacts: Object.keys(state.contactProfiles).length, masterActive: state.config.masterActive, geminiOk: Boolean(lastGeminiModel), geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'), geminiModel: lastGeminiModel, geminiTestedAt: lastGeminiTestAt, activeStatuses: getActiveStatuses().length, pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length, uptime: Math.floor(process.uptime()) }));
+app.get('/health', (req, res) => res.json({
+  ok: true,
+  version: '5.1.2',
+  persistence: persistence.status(),
+  meta: {
+    configured: Boolean(PAGE_TOKEN),
+    lastGraphError: state.lastGraphError || null
+  },
+  mode: 'banglish_mirror',
+  ownerPresence: state.ownerPresence,
+  openTasks: state.ownerTasks.filter(t => t.status === 'OPEN').length,
+  taggedContacts: Object.keys(state.contactProfiles).length,
+  masterActive: state.config.masterActive,
+  geminiOk: Boolean(lastGeminiModel),
+  geminiStatus: lastGeminiModel ? 'ready' : (lastGeminiError ? 'error' : 'not_tested'),
+  geminiModel: lastGeminiModel,
+  geminiTestedAt: lastGeminiTestAt,
+  activeStatuses: getActiveStatuses().length,
+  pendingCount: Object.values(state.pendingReplies).filter(p => p.status === 'WAITING').length,
+  uptime: Math.floor(process.uptime())
+}));
+app.get('/diagnose/meta', async (req, res) => {
+  const diag = await diagnoseMetaApi();
+  res.json(diag);
+});
 app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.1.1 Smart Offline Assistant</h2><p>Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Gemini: <b>${lastGeminiModel ? 'READY' : (lastGeminiError ? 'ERROR' : 'NOT TESTED')}</b> | Active Statuses: <b>${getActiveStatuses().length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
 // Runtime diagnostics enabled in v5.1.1.
@@ -878,4 +1135,19 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
 });
-bootstrap();
+if (require.main === module) {
+  bootstrap();
+}
+
+module.exports = {
+  app,
+  state,
+  classifyGraphError,
+  callGraph,
+  sendPageReply,
+  sendOwnerReply,
+  sendPageReplySequence,
+  diagnoseMetaApi,
+  hasEmoji,
+  withEmoji
+};
