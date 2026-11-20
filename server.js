@@ -426,7 +426,7 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
       reply_markup: {
         inline_keyboard: [
           sRow,
-          [{ text: '✍️ Custom Reply', callback_data: `reply:${pid}` }, { text: '🔄 Regenerate', callback_data: `regen:${pid}` }],
+          [{ text: '🔵 Custom Reply', callback_data: `reply:${pid}` }, { text: '🟡 Regenerate', callback_data: `regen:${pid}` }],
           [{ text: '💬 History', callback_data: `view:${psid}` }, { text: '🚫 Ignore', callback_data: `ignore:${pid}` }, { text: '⛔ Block', callback_data: `block:${psid}` }]
         ]
       }
@@ -635,10 +635,10 @@ if (BOT_TOKEN) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: state.ownerPresence === 'online' ? '🌙 Set Offline' : '🟢 Set Online', callback_data: 'presence_toggle' }, { text: '📌 Tasks', callback_data: 'show_tasks' }],
+          [{ text: state.ownerPresence === 'online' ? '🔵 Set Offline' : '🟢 Set Online', callback_data: 'presence_toggle' }, { text: '🔵 Tasks', callback_data: 'show_tasks' }],
           [{ text: state.config.masterActive ? '⏸ Pause Bot' : '▶️ Resume Bot', callback_data: 'toggle' }, { text: '📋 Pending List', callback_data: 'list_pending' }],
           [{ text: '📍 My Status', callback_data: 'show_st' }, { text: '📊 Analytics', callback_data: 'show_an' }],
-          [{ text: '📖 সব কমান্ড (/help)', callback_data: 'show_help' }, { text: '🧹 Clear Memory', callback_data: 'clear_mem' }]
+          [{ text: '🔵 সব কমান্ড (/help)', callback_data: 'show_help' }, { text: '🔴 Clear Memory', callback_data: 'clear_mem' }]
         ]
       }
     });
