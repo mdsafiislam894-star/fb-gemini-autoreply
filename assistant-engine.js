@@ -20,6 +20,21 @@ function classifyActivityQuestion(message) {
   return { kind: 'other', script };
 }
 
+function classifyGreeting(message) {
+  const text = String(message || '').trim();
+  const t = text.toLowerCase().replace(/[.!?…]+$/g, '').trim();
+  if (/^(হাই+|হ্যালো+|আসসালামু আলাইকুম|সালাম)$/u.test(t)) return { kind: 'greeting', script: 'Bengali' };
+  if (/^(oi+|oie+|hey+|hii+|hiii+|hello+|heyy+)$/i.test(t)) return { kind: 'greeting', script: /^(oi+|oie+)$/i.test(t) ? 'Banglish' : 'English' };
+  if (/^(hi+|hello+|hey+)$/i.test(t)) return { kind: 'greeting', script: 'English' };
+  return { kind: 'other', script: 'English' };
+}
+
+function buildGreetingReply(script) {
+  if (script === 'Banglish') return 'Oiii! Bolo, ki khobor? 🙂';
+  if (script === 'Bengali') return 'হ্যালো! বলো, কেমন আছো? 🙂';
+  return 'Hey! How’s it going? 🙂';
+}
+
 function buildAssistantActivityReply(script, message = '') {
   const t = String(message || '').toLowerCase();
   const asksLocation = /\\b(koi|kothay|where are you)\\b/i.test(t) || /(কোথায় আছ|কোথায় আছ|কই আছ)/u.test(t);
@@ -96,4 +111,4 @@ function isProactiveScheduleValid(schedule, conversation, profile, now = Date.no
   if (Number(conversation && conversation.lastUserAt || 0) !== Number(schedule.inboundAt)) return false;
   return now >= Number(schedule.scheduledAt) && now < Number(schedule.expiresAt);
 }
-module.exports = { classifyActivityQuestion, buildAssistantActivityReply, classifyRelayIntent, buildRelayAcknowledgement, canSendWifeProactive, makeProactiveSchedule, isProactiveScheduleValid, isTaskReminderDue, __test: { parseDueDate, parseClockTime, localDhakaToUtc } };
+module.exports = { classifyGreeting, buildGreetingReply, classifyActivityQuestion, buildAssistantActivityReply, classifyRelayIntent, buildRelayAcknowledgement, canSendWifeProactive, makeProactiveSchedule, isProactiveScheduleValid, isTaskReminderDue, __test: { parseDueDate, parseClockTime, localDhakaToUtc } };
