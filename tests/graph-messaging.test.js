@@ -152,3 +152,113 @@ test('single reply enforcement limits outgoing replies to at most one', () => {
   assert.equal(normalized.parts.length, 1);
   assert.equal(normalized.parts[0], 'First bubble 🙂');
 });
+
+
+// ── Emoji-only detection tests ──
+
+test('isEmojiOnly detects pure emoji messages', () => {
+  const { isEmojiOnly } = require('../assistant-engine');
+  assert.equal(isEmojiOnly('❤️'), true);
+  assert.equal(isEmojiOnly('😂😂😂'), true);
+  assert.equal(isEmojiOnly('👍'), true);
+  assert.equal(isEmojiOnly('👋🔥'), true);
+  assert.equal(isEmojiOnly('🥺💔'), true);
+  assert.equal(isEmojiOnly('🙏'), true);
+});
+
+test('isEmojiOnly rejects text messages', () => {
+  const { isEmojiOnly } = require('../assistant-engine');
+  assert.equal(isEmojiOnly('hello'), false);
+  assert.equal(isEmojiOnly('ki koris'), false);
+  assert.equal(isEmojiOnly('কেমন আছো'), false);
+  assert.equal(isEmojiOnly('hello 👋'), false);
+  assert.equal(isEmojiOnly(''), false);
+  assert.equal(isEmojiOnly(null), false);
+});
+
+// ── Emoji reply tests ──
+
+test('buildEmojiReply returns love reply for heart emoji', () => {
+  const { buildEmojiReply } = require('../assistant-engine');
+  const reply = buildEmojiReply('❤️', 'Banglish');
+  assert.ok(reply.length > 0);
+  assert.ok(/💖/.test(reply));
+});
+
+test('buildEmojiReply returns Bengali reply when script is Bengali', () => {
+  const { buildEmojiReply } = require('../assistant-engine');
+  const reply = buildEmojiReply('😂', 'Bengali');
+  assert.ok(/[\u0980-\u09ff]/.test(reply), 'Reply should contain Bengali script');
+});
+
+test('buildEmojiReply returns English reply when script is English', () => {
+  const { buildEmojiReply } = require('../assistant-engine');
+  const reply = buildEmojiReply('👍', 'English');
+  assert.ok(/[a-zA-Z]/.test(reply), 'Reply should contain English text');
+  assert.ok(!(/[\u0980-\u09ff]/.test(reply)), 'Reply should not contain Bengali');
+});
+
+test('buildEmojiReply handles unknown emoji gracefully', () => {
+  const { buildEmojiReply } = require('../assistant-engine');
+  const reply = buildEmojiReply('🏈', 'Banglish');
+  assert.ok(reply.length > 0);
+  assert.ok(/😊/.test(reply));
+});
+
+// ── Chit-chat classifier tests ──
+
+test('classifyChitChat detects identity questions', () => {
+  const { classifyChitChat } = require('../assistant-engine');
+  assert.equal(classifyChitChat('tumi ke?').kind, 'identity');
+  assert.equal(classifyChitChat('who are you?').kind, 'identity');
+  assert.equal(classifyChitChat('তুমি কে?').kind, 'identity');
+  assert.ok(classifyChitChat('tumi ke?').reply.length > 0);
+});
+
+test('classifyChitChat detects thanks', () => {
+  const { classifyChitChat } = require('../assistant-engine');
+  assert.equal(classifyChitChat('thanks').kind, 'thanks');
+  assert.equal(classifyChitChat('dhonnobad').kind, 'thanks');
+  assert.equal(classifyChitChat('ধন্যবাদ').kind, 'thanks');
+});
+
+test('classifyChitChat detects greetings', () => {
+  const { classifyChitChat } = require('../assistant-engine');
+  assert.equal(classifyChitChat('good morning').kind, 'morning');
+  assert.equal(classifyChitChat('good night').kind, 'night');
+  assert.equal(classifyChitChat('শুভ সকাল').kind, 'morning');
+});
+
+test('classifyChitChat detects bye', () => {
+  const { classifyChitChat } = require('../assistant-engine');
+  assert.equal(classifyChitChat('bye').kind, 'bye');
+  assert.equal(classifyChitChat('take care').kind, 'bye');
+});
+
+test('classifyChitChat returns null for normal questions', () => {
+  const { classifyChitChat } = require('../assistant-engine');
+  assert.equal(classifyChitChat('Bangladesh er capital ki?'), null);
+  assert.equal(classifyChitChat('amake help koro'), null);
+  assert.equal(classifyChitChat('ki holo?'), null);
+});
+
+// ── All chit-chat and emoji replies must have emoji ──
+
+test('all emoji and chit-chat replies contain emoji', () => {
+  const { buildEmojiReply, classifyChitChat } = require('../assistant-engine');
+  const emojiRe = /\p{Extended_Pictographic}/u;
+  
+  // Emoji replies
+  for (const em of ['❤️', '😂', '👍', '👋', '🔥', '🥺', '🙏', '🏈']) {
+    for (const script of ['Bengali', 'English', 'Banglish']) {
+      const reply = buildEmojiReply(em, script);
+      assert.ok(emojiRe.test(reply), `buildEmojiReply('${em}', '${script}') must have emoji: "${reply}"`);
+    }
+  }
+
+  // Chit-chat replies
+  for (const msg of ['tumi ke?', 'thanks', 'good morning', 'good night', 'bye']) {
+    const result = classifyChitChat(msg);
+    assert.ok(result && emojiRe.test(result.reply), `classifyChitChat('${msg}') reply must have emoji: "${result?.reply}"`);
+  }
+});

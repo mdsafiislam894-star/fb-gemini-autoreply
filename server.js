@@ -482,9 +482,14 @@ async function callGraph(endpoint, payload, options = {}) {
 }
 
 async function fetchSenderName(psid) {
+  if (state.conversations[psid]?.senderName && !state.conversations[psid].senderName.startsWith('User ')) {
+    return state.conversations[psid].senderName;
+  }
   try {
-    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${psid}?fields=first_name,last_name&access_token=${encodeURIComponent(PAGE_TOKEN)}`);
-    const d = await res.json();
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${psid}?fields=first_name,last_name&access_token=${encodeURIComponent(PAGE_TOKEN)}`, {
+      signal: AbortSignal.timeout(3500)
+    });
+    const d = await res.json().catch(() => null);
     if (d && d.first_name) return `${d.first_name} ${d.last_name || ''}`.trim();
   } catch (_) {}
   return `User ${psid.slice(-4)}`;
@@ -564,20 +569,22 @@ Instructions:
 2. STRICT SCRIPT MIRRORING:
    - If the user wrote in Banglish/Romanized Bengali (e.g. "ki koris?", "valo?", "khaicis?"), your reply MUST be in Banglish/Romanized Bengali!
    - If Bengali script, reply in Bengali script. If English, reply in English. If Mixed, reply in Mixed.
-3. If an Approved Active Status directly answers a personal/activity question, set classification="GENERAL", requires_owner=false, and reply naturally in the user's exact script & pronoun using that approved status.
-4. If the message is gibberish/unclear typo with no clear meaning (e.g. "krst" or "oi ta niye ki korli?" with no context), set classification="GENERAL", requires_owner=false, and ask ONE short polite clarification question in the user's script.
-5. If PERSONAL (the owner's plans/location/eating/college/calls without an active status that directly answers the exact question), SENSITIVE, URGENT, or COMPLAINT: set requires_owner=true and suggested_reply="". IMPORTANT: "What are YOU doing?", "ki koro?", "ki koris?", and "ki obostha?" address ZEVIAN, not the Owner; classify them GENERAL and reply as ZEVIAN. Only classify as PERSONAL when the sender clearly asks about Safi / the Owner / Sir. Never infer an answer from an unrelated status.
-6. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
-Single-reply conversation rules (apply to ALL contacts): Think like a real chat participant, not a FAQ bot. Return exactly ONE concise Messenger reply in reply_parts (one array item only), not multiple bubbles. For a casual message such as "ki koris?", answer naturally in one message, e.g. "Ei to, tomar sathe kotha bolchi 🙂". For "Koi achis?" answer naturally in one message. For "Oiii" use a short natural greeting. Do NOT force a reciprocal question into every reply. Choose reply_policy=NO_REPLY for low-value acknowledgements, reactions, repeated messages, or when silence is more natural. Ask one concise clarification question if meaning is unclear. The single reply must match sender script, pronoun, spelling, tone, and include a suitable emoji. Never send more than one reply per inbound message. Delayed proactive follow_up remains wife-tag-only.\nReturn ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["Ei to, tomar sathe kotha bolchi 🙂"],"suggested_reply":"Ei to, tomar sathe kotha bolchi 🙂","owner_suggestions":["...","...","..."],"follow_up":""}. For silence use reply_policy=NO_REPLY and reply_parts=[]. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
+3. BE HELPFUL, SMART AND DIRECT:
+   - Answer the user's questions clearly, intelligently, politely, and concisely.
+   - For general knowledge, advice, questions about products/services, tech, or polite queries, always give a direct, friendly answer as ZEVIAN!
+   - Only set requires_owner=true when the message asks about Safi/Owner's private personal schedule, private location, or private actions that only the owner knows.
+4. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
+Single-reply conversation rules: Return exactly ONE concise Messenger reply in reply_parts (one array item only), not multiple bubbles. Never return an empty reply for a valid question. The single reply must match sender script, pronoun, spelling, tone, and include a suitable emoji.
+Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["..."],"suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
-  // Low-cost chat routing: Flash-Lite first; keep a same-tier fallback only.
+  // Low-cost, high-speed chat routing
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
-  const models = [...new Set([configuredModel || 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
+  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
   for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.65, responseMimeType: 'application/json', maxOutputTokens: 360 } })
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(12000),
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, responseMimeType: 'application/json', maxOutputTokens: 280 } })
       });
       const d = await res.json();
       if (!res.ok) {
@@ -590,21 +597,22 @@ Single-reply conversation rules (apply to ALL contacts): Think like a real chat 
       if (raw) {
         const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
         const allowed = ['GENERAL', 'PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT', 'SPAM', 'FOLLOW_UP'];
-        const classification = String(parsed.classification || 'UNCERTAIN').toUpperCase();
-        const safeClass = allowed.includes(classification) ? classification : 'UNCERTAIN';
-        const requiresOwner = Boolean(parsed.requires_owner) || ['PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT'].includes(safeClass);
+        const classification = String(parsed.classification || 'GENERAL').toUpperCase();
+        const safeClass = allowed.includes(classification) ? classification : 'GENERAL';
+        const requiresOwner = Boolean(parsed.requires_owner) || safeClass === 'PERSONAL';
         const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
         const replyPlan = replyPlanEngine.normalizeReplyPlan(parsed);
+        const resolvedReply = (replyPlan.parts && replyPlan.parts[0]) || (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : '');
         lastGeminiError = null;
         lastGeminiModel = m;
         return {
           classification: safeClass,
           confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
           requires_owner: requiresOwner,
-          reason: String(parsed.reason || 'Owner review required').slice(0, 250),
-          reply_policy: requiresOwner ? 'NO_REPLY' : replyPlan.policy,
-          reply_parts: requiresOwner ? [] : replyPlan.parts.map(part => withEmoji(part, '🙂')),
-          suggested_reply: requiresOwner ? '' : (replyPlan.parts[0] || (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : '')),
+          reason: String(parsed.reason || (requiresOwner ? 'Owner review required' : 'Direct assistant reply')).slice(0, 250),
+          reply_policy: requiresOwner ? 'NO_REPLY' : (replyPlan.policy === 'NO_REPLY' && resolvedReply ? 'SEND' : replyPlan.policy),
+          reply_parts: requiresOwner ? [] : (resolvedReply ? [withEmoji(resolvedReply, '🙂')] : []),
+          suggested_reply: requiresOwner ? '' : (resolvedReply ? withEmoji(resolvedReply, '🙂') : ''),
           owner_suggestions: suggestions.length ? suggestions : fallbackSuggestions(conv.prefs.script),
           follow_up: !requiresOwner && typeof parsed.follow_up === 'string' ? parsed.follow_up.trim().slice(0, 400) : ''
         };
@@ -621,13 +629,14 @@ function escalate(psid, name, q, cls, reason, suggs = []) {
   state.pendingReplies[pid] = { id: pid, psid, senderName: name, question: q, classification: cls, reason, suggestions: clean, status: 'WAITING' };
   if (tgBot && ADMIN_CHAT_ID) {
     const sLines = clean.map((s, i) => `${i + 1}. ${s}`).join('\n');
-    const sRow = clean.map((_, i) => ({ text: `✅ #${i + 1}`, callback_data: `sugg:${pid}:${i}` }));
+    const sugEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
+    const sRow = clean.map((_, i) => ({ text: `${sugEmoji[i] || '✅'} পাঠান`, callback_data: `sugg:${pid}:${i}` }));
     tgBot.sendMessage(ADMIN_CHAT_ID, `🚨 ZEVIAN — ${cls} QUESTION\n\n🆔 ${pid} | 👤 ${name}\n💬 PSID: ${psid}\n💡 ${reason}\n\n❓ Message:\n${q}\n\n✨ AI Suggestions (1-Tap Send):\n${sLines}`, {
       reply_markup: {
         inline_keyboard: [
           sRow,
-          [{ text: '🔵 Custom Reply', callback_data: `reply:${pid}` }, { text: '🟡 Regenerate', callback_data: `regen:${pid}` }],
-          [{ text: '💬 History', callback_data: `view:${psid}` }, { text: '🚫 Ignore', callback_data: `ignore:${pid}` }, { text: '⛔ Block', callback_data: `block:${psid}` }]
+          [{ text: '✍️ কাস্টম রিপ্লাই', callback_data: `reply:${pid}` }, { text: '🔄 নতুন সাজেশন', callback_data: `regen:${pid}` }],
+          [{ text: '💬 হিস্ট্রি', callback_data: `view:${psid}` }, { text: '🚫 ইগনোর', callback_data: `ignore:${pid}` }, { text: '⛔ ব্লক', callback_data: `block:${psid}` }]
         ]
       }
     }).catch(() => {});
@@ -718,6 +727,21 @@ app.post('/webhook', async (req, res) => {
         if (!text) continue;
         console.info('[webhook] inbound text accepted', JSON.stringify({ sender: String(psid).slice(-4), messageId: mid || null, length: text.length }));
         pushMsg(psid, 'User', text);
+
+        // ── Fast-path: emoji-only messages (instant, no Gemini call) ──
+        if (assistantEngine.isEmojiOnly(text)) {
+          const emojiReply = assistantEngine.buildEmojiReply(text, conv.prefs.script);
+          await sendPageReply(psid, emojiReply, 'ZEVIAN');
+          continue;
+        }
+
+        // ── Fast-path: chit-chat (identity, thanks, greetings, bye) ──
+        const chitChat = assistantEngine.classifyChitChat(text);
+        if (chitChat && chitChat.reply) {
+          await sendPageReply(psid, chitChat.reply, 'ZEVIAN');
+          continue;
+        }
+
         const greetingIntent = assistantEngine.classifyGreeting(text);
         if (greetingIntent.kind === 'greeting') {
           await sendPageReply(psid, assistantEngine.buildGreetingReply(greetingIntent.script), 'ZEVIAN');
@@ -728,7 +752,8 @@ app.post('/webhook', async (req, res) => {
           await sendPageReply(psid, assistantEngine.buildAssistantActivityReply(activityIntent.script, text), 'ZEVIAN');
           continue;
         }
-        await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
+        // Non-blocking typing indicator — don't await
+        callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' }).catch(() => {});
         const relayIntent = assistantEngine.classifyRelayIntent(text);
         const ownerTask = (relayIntent.isRelay || isTaskIntent(text)) ? addOwnerTask(psid, name, text) : null;
         if (relayIntent.isRelay) {
@@ -760,22 +785,30 @@ app.post('/webhook', async (req, res) => {
           escalate(psid, name, text, 'UNCERTAIN', `Gemini unavailable: ${lastGeminiError || 'all model attempts failed'}`, fallbackSuggestions(conv.prefs.script));
           continue;
         }
-        const cls = (ai.classification || 'UNCERTAIN').toUpperCase();
+        const cls = (ai.classification || 'GENERAL').toUpperCase();
         if (cls === 'SPAM') continue;
-        if ((cls === 'GENERAL' || cls === 'FOLLOW_UP') && !ai.requires_owner && true) {
-          if (ai.reply_policy === 'NO_REPLY' || !Array.isArray(ai.reply_parts) || ai.reply_parts.length === 0) continue;
+
+        // Key logic: if Gemini has a reply and doesn't require owner, send it directly
+        const hasReply = Array.isArray(ai.reply_parts) && ai.reply_parts.length > 0 && ai.reply_parts[0];
+        const shouldSendDirect = !ai.requires_owner && hasReply;
+
+        if (shouldSendDirect) {
           const replyParts = ai.reply_parts.slice(0, 1);
           const delivery = await sendPageReplySequence(psid, replyParts, 'ZEVIAN');
           if (delivery.complete && tgBot && ADMIN_CHAT_ID) tgBot.sendMessage(ADMIN_CHAT_ID, `💬 ZEVIAN (${cls})\n👤 ${name} [${conv.prefs.script} | ${conv.prefs.pronoun}]\n📩 ${text}\n🤖 ${replyParts.join(' | ')}`).catch(() => {});
           if (delivery.complete && ai.follow_up) scheduleRelationshipFollowup(psid, conv, ai.follow_up, conv.lastUserAt);
-        } else {
+        } else if (ai.requires_owner) {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei bishoyta amar Owner-er sathe confirm kore janacchi 🙂'
             : conv.prefs.script === 'English'
             ? 'I will check this with my Owner and get back to you 🙂'
-            : 'বিষয়টি আমার Owner-এর সঙ্গে নিশ্চিত করে জানাচ্ছি 🙂';
+            : 'বিষয়টি আমার Owner-এর সঙ্গে নিশ্চিত করে জানাচ্ছি 🙂';
           await sendPageReply(psid, holdMsg, 'ZEVIAN');
           escalate(psid, name, text, cls, ai.reason || 'Owner approval needed', ai.owner_suggestions || fallbackSuggestions(conv.prefs.script));
+        } else {
+          // No reply generated and no owner needed; fallback safe reply
+          await sendPageReply(psid, fallbackUserReply(conv.prefs.script, Boolean(tgBot && ADMIN_CHAT_ID)), 'ZEVIAN');
+          escalate(psid, name, text, cls, ai.reason || 'No AI reply generated', ai.owner_suggestions || fallbackSuggestions(conv.prefs.script));
         }
       }
     }
@@ -840,10 +873,10 @@ if (BOT_TOKEN) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: state.ownerPresence === 'online' ? '🔵 Set Offline' : '🟢 Set Online', callback_data: 'presence_toggle' }, { text: '🔵 Tasks', callback_data: 'show_tasks' }],
-          [{ text: state.config.masterActive ? '⏸ Pause Bot' : '▶️ Resume Bot', callback_data: 'toggle' }, { text: '📋 Pending List', callback_data: 'list_pending' }],
-          [{ text: '📍 My Status', callback_data: 'show_st' }, { text: '📊 Analytics', callback_data: 'show_an' }],
-          [{ text: '🔵 সব কমান্ড (/help)', callback_data: 'show_help' }, { text: '🔴 Clear Memory', callback_data: 'clear_mem' }]
+          [{ text: state.ownerPresence === 'online' ? '🌙 অফলাইন করুন' : '🟢 অনলাইন করুন', callback_data: 'presence_toggle' }, { text: '📌 Tasks দেখুন', callback_data: 'show_tasks' }],
+          [{ text: state.config.masterActive ? '⏸️ বট পজ করুন' : '▶️ বট চালু করুন', callback_data: 'toggle' }, { text: '🔔 পেন্ডিং দেখুন', callback_data: 'list_pending' }],
+          [{ text: '📍 আমার স্ট্যাটাস', callback_data: 'show_st' }, { text: '📊 পরিসংখ্যান', callback_data: 'show_an' }],
+          [{ text: '📖 সব কমান্ড দেখুন', callback_data: 'show_help' }, { text: '🧹 মেমোরি ক্লিয়ার', callback_data: 'clear_mem' }]
         ]
       }
     });
@@ -883,7 +916,7 @@ if (BOT_TOKEN) {
     pendingDraftStatus = txt.trim();
     tgBot.sendMessage(cid, `📍 *এই তথ্যটি Active Status হিসেবে রাখব?*\n\n_"${pendingDraftStatus}"_`, {
       parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: [[{ text: '✅ Share (1h)', callback_data: 'st:share:60' }, { text: '✅ Share (3h)', callback_data: 'st:share:180' }], [{ text: '✅ Share (6h)', callback_data: 'st:share:360' }, { text: '🔒 Keep Private', callback_data: 'st:private:360' }], [{ text: '❌ Cancel', callback_data: 'st:cancel' }]] }
+      reply_markup: { inline_keyboard: [[{ text: '⏰ ১ ঘণ্টা শেয়ার', callback_data: 'st:share:60' }, { text: '🕐 ৩ ঘণ্টা শেয়ার', callback_data: 'st:share:180' }], [{ text: '🕕 ৬ ঘণ্টা শেয়ার', callback_data: 'st:share:360' }, { text: '🔒 প্রাইভেট রাখুন', callback_data: 'st:private:360' }], [{ text: '❌ বাতিল', callback_data: 'st:cancel' }]] }
     });
   };
 
@@ -955,7 +988,7 @@ if (BOT_TOKEN) {
   tgBot.onText(/\/setstatus ([\s\S]+)/, (m, match) => isOwner(m.chat.id) && askStatus(m.chat.id, match[1]));
   tgBot.onText(/\/inbox/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.conversations).slice(-8); tgBot.sendMessage(m.chat.id, l.length ? l.map(c => `👤 *${c.senderName}* (\`${c.psid}\`)\n🗣️ ${c.prefs.script} | ${c.prefs.pronoun}\n└ ${c.messages[c.messages.length - 1]?.text || ''}`).join('\n\n') : '💬 কোনো চ্যাট নেই।', { parse_mode: 'Markdown' }); });
   tgBot.onText(/\/history (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const c = state.conversations[match[1].trim()]; tgBot.sendMessage(m.chat.id, c ? `💬 *${c.senderName} History:*\n` + c.messages.slice(-12).map(x => `[${x.time}] *${x.role}:* ${x.text}`).join('\n') : '⚠️ এই PSID-র কোনো হিস্ট্রি পাওয়া যায়নি।', { parse_mode: 'Markdown' }); });
-  tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 Clear Conversation Memory', callback_data: 'clear_mem' }]] } }); });
+  tgBot.onText(/\/memory/, m => { if (!isOwner(m.chat.id)) return; tgBot.sendMessage(m.chat.id, `🧠 *ZEVIAN Memory Status*\n• Saved Conversations: ${Object.keys(state.conversations).length}\n• Active Statuses: ${getActiveStatuses().length}\n• Knowledge Base Items: ${state.kbItems.length}\n• Blocked Users: ${state.blockedUsers.length}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🧹 কনভার্সেশন মেমোরি ক্লিয়ার', callback_data: 'clear_mem' }]] } }); });
   tgBot.onText(/\/testgemini/, async m => {
     if (!isOwner(m.chat.id)) return;
     const r = await analyzeMessage('test_bn', 'ki obostha?');
@@ -991,7 +1024,7 @@ if (BOT_TOKEN) {
     }
     tgBot.sendMessage(m.chat.id, statusLines.join('\n'), { parse_mode: 'Markdown' });
   });
-  tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ Reply', callback_data: `reply:${p.id}` }, { text: '🚫 Ignore', callback_data: `ignore:${p.id}` }]] } })); });
+  tgBot.onText(/\/pending/, m => { if (!isOwner(m.chat.id)) return; const l = Object.values(state.pendingReplies).filter(p => p.status === 'WAITING'); if (!l.length) return tgBot.sendMessage(m.chat.id, '✅ কোনো Pending প্রশ্ন নেই!'); l.forEach(p => tgBot.sendMessage(m.chat.id, `🆔 \`${p.id}\` | 👤 ${p.senderName}\n❓ ${p.question}`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✍️ উত্তর দিন', callback_data: `reply:${p.id}` }, { text: '🚫 বাদ দিন', callback_data: `ignore:${p.id}` }]] } })); });
   tgBot.onText(/\/addkb ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const p = match[1].split('|'); state.kbItems.unshift({ id: `kb-${Date.now()}`, question: (p[0] || '').trim(), answer: (p[1] || p[0] || '').trim() }); tgBot.sendMessage(m.chat.id, '✅ FAQ / Knowledge Base-এ যুক্ত হয়েছে!'); });
   tgBot.onText(/\/setprompt ([\s\S]+)/, (m, match) => { if (!isOwner(m.chat.id)) return; state.config.systemPrompt = match[1].trim(); tgBot.sendMessage(m.chat.id, '✅ System Prompt আপডেট হয়েছে!'); });
   tgBot.onText(/\/ignore (\S+)/, (m, match) => { if (!isOwner(m.chat.id)) return; const pid = match[1].trim(); if (state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'IGNORED'; tgBot.sendMessage(m.chat.id, `🚫 \`${pid}\` ইগনোর হয়েছে।`, { parse_mode: 'Markdown' }); } });
@@ -1027,7 +1060,8 @@ if (BOT_TOKEN) {
     else if (d === 'st:cancel') { pendingDraftStatus = null; tgBot.sendMessage(cid, '❌ বাতিল হয়েছে।'); }
     else if (d.startsWith('st:')) { const [, vis, mins] = d.split(':'); if (pendingDraftStatus) { const st = addStatus(pendingDraftStatus, vis, Number(mins)); pendingDraftStatus = null; tgBot.sendMessage(cid, `✅ Status *${st.id}* (${st.visibility}, ${st.expiresLabel}) চালু হয়েছে!\n_"${st.text}"_`, { parse_mode: 'Markdown' }); } }
     else if (d.startsWith('sugg:')) { const [, pid, idx] = d.split(':'); const it = state.pendingReplies[pid]; const ch = it && it.suggestions && it.suggestions[Number(idx)]; if (it && it.status === 'WAITING' && ch) { const ok = await sendOwnerReply(it.psid, ch, pid); tgBot.sendMessage(cid, ok ? `✅ 1-Tap উত্তর *${it.senderName}*-কে পাঠানো হয়েছে:\n_"${ch}"_` : '❌ পাঠানো যায়নি', { parse_mode: 'Markdown' }); } }
-    else if (d.startsWith('regen:')) { const pid = d.split(':')[1], it = state.pendingReplies[pid]; if (it && it.status === 'WAITING') { const ai = await analyzeMessage(it.psid, it.question); if (ai && ai.owner_suggestions && ai.owner_suggestions.length) { it.suggestions = ai.owner_suggestions.slice(0, 4); const sRow = it.suggestions.map((_, i) => ({ text: `✅ #${i + 1}`, callback_data: `sugg:${pid}:${i}` })); tgBot.sendMessage(cid, `🔄 *নতুন সাজেশন (${pid}):*\n` + it.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n'), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [sRow] } }); } } }
+    else if (d.startsWith('regen:')) { const pid = d.split(':')[1], it = state.pendingReplies[pid]; if (it && it.status === 'WAITING') { const ai = await analyzeMessage(it.psid, it.question); if (ai && ai.owner_suggestions && ai.owner_suggestions.length) { it.suggestions = ai.owner_suggestions.slice(0, 4); const sugEmoji2 = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
+            const sRow = it.suggestions.map((_, i) => ({ text: `${sugEmoji2[i] || '✅'} পাঠান`, callback_data: `sugg:${pid}:${i}` })); tgBot.sendMessage(cid, `🔄 *নতুন সাজেশন (${pid}):*\n` + it.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n'), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [sRow] } }); } } }
     else if (d.startsWith('reply:')) { const pid = d.split(':')[1]; if (state.pendingReplies[pid]?.status === 'WAITING') { activeReplyPendingId = pid; tgBot.sendMessage(cid, `✍️ *${state.pendingReplies[pid].senderName}*-এর প্রশ্নের (${pid}) উত্তর সরাসরি লিখুন:`, { parse_mode: 'Markdown' }); } }
     else if (d.startsWith('ignore:')) { const pid = d.split(':')[1]; if (state.pendingReplies[pid]) { state.pendingReplies[pid].status = 'IGNORED'; tgBot.sendMessage(cid, `🚫 ${pid} ইগনোর হয়েছে।`); } }
     else if (d.startsWith('block:')) { const u = d.split(':')[1]; if (!state.blockedUsers.includes(u)) state.blockedUsers.push(u); tgBot.sendMessage(cid, `⛔ ${u} ব্লক হয়েছে।`); }

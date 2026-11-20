@@ -35,6 +35,120 @@ function buildGreetingReply(script) {
   return 'Hey! How’s it going? 🙂';
 }
 
+function isEmojiOnly(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (!/\p{Extended_Pictographic}/u.test(t)) return false;
+  const stripped = t.replace(/\p{Extended_Pictographic}/gu, '').replace(/[\uFE0F\u200D\u20E3\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}\u{E0001}\u{E007F}]/gu, '').replace(/[\s.,!?;:()~_+\-*#@$%^&'"/\\<>{}[\]|`=]+/g, '');
+  return stripped.length === 0;
+}
+
+function buildEmojiReply(text, script = 'Banglish') {
+  const t = String(text || '');
+  if (/[❤️💖💕💓💗💘💝💞💟🥰😍😘💌]/u.test(t)) {
+    if (script === 'Bengali') return 'অনেক ভালোবাসা রইলো! 💖';
+    if (script === 'English') return 'Lots of love to you! 💖';
+    return 'Onek bhalobasha roilo! 💖';
+  }
+  if (/[😂🤣😆😹😸]/u.test(t)) {
+    if (script === 'Bengali') return 'কী ব্যাপার, খুব হাসির কিছু হলো নাকি? 😆';
+    if (script === 'English') return 'Haha, glad you found that funny! 😆';
+    return 'Haha, eto hashi keno bolo to? 😆';
+  }
+  if (/[👍👌✌️🤝🙌👏]/u.test(t)) {
+    if (script === 'Bengali') return 'ধন্যবাদ! কোনো প্রয়োজন হলে নির্দ্বিধায় বলো 😊';
+    if (script === 'English') return 'Awesome! Let me know if you need anything else 😊';
+    return 'Dhonnobad! Kono help lagle janao kintu 😊';
+  }
+  if (/[👋✋🙋‍♂️🙋‍♀️]/u.test(t)) {
+    if (script === 'Bengali') return 'হ্যালো! বলো, কীভাবে সাহায্য করতে পারি? 🙂';
+    if (script === 'English') return 'Hey there! How can I help you today? 🙂';
+    return 'Heyy! Ki khobor, bolo kivabe help korte pari? 🙂';
+  }
+  if (/[🔥⭐🌟✨💯😎]/u.test(t)) {
+    if (script === 'Bengali') return 'একদম দারুণ! 🔥';
+    if (script === 'English') return 'Super awesome! 🔥';
+    return 'Joss! Ekdom darun 🔥';
+  }
+  if (/[🥺😢😭💔😿😞😔]/u.test(t)) {
+    if (script === 'Bengali') return 'আরে মন খারাপ কোরো না, সব ঠিক হয়ে যাবে 💙';
+    if (script === 'English') return 'Hey, don’t be sad! Everything will be alright 💙';
+    return 'Arey mon kharap koro na, shob thik hoye jabe 💙';
+  }
+  if (/[🙏💐🌸🌹🌷🌺]/u.test(t)) {
+    if (script === 'Bengali') return 'সবসময় স্বাগতম! ভালো থেকো 🙂';
+    if (script === 'English') return 'You are always welcome! 🙂';
+    return 'Shobshomoy swagotom! Valo theko 🙂';
+  }
+  if (script === 'Bengali') return 'সুন্দর! বলো, কেমন কাটছে সময়? 😊';
+  if (script === 'English') return 'Nice! How are you doing today? 😊';
+  return 'Sundor! Bolo, kemon cholche shobkichu? 😊';
+}
+
+function classifyChitChat(message) {
+  const text = String(message || '').trim();
+  const t = text.toLowerCase().replace(/[.!?…]+$/g, '').trim();
+  const hasBangla = /[\u0980-\u09ff]/.test(text);
+  const script = hasBangla ? 'Bengali' : (/^[a-zA-Z0-9\s.,!?]+$/.test(t) && !/\b(tumi|ami|kemon|valo|bhalo|dhonnobad|shuvo|korte|koro)\b/.test(t) ? 'English' : 'Banglish');
+
+  if (/^(tumi ke|who are you|tmr nam ki|tomar nam ki|apnar nam ki|naam ki|nam ki|tumi ki ai|apni ke|তুমি কে|তোমার নাম কি|তোমার নাম কী|আপনার নাম কী|আপনার নাম কি)\??$/i.test(t)) {
+    return {
+      kind: 'identity',
+      reply: script === 'Bengali'
+        ? 'আমি ZEVIAN, এই ফেসবুক পেজের স্মার্ট এআই পার্সোনাল অ্যাসিস্ট্যান্ট 🙂 বলো, কীভাবে সাহায্য করতে পারি?'
+        : script === 'English'
+        ? 'I am ZEVIAN, the smart AI personal assistant for this Page 🙂 How can I help you today?'
+        : 'Ami ZEVIAN, ei Facebook Page-er smart AI personal assistant 🙂 Bolo, kivabe sahajjo korte pari?'
+    };
+  }
+
+  if (/^(thanks|thank you|thx|thnk u|dhonnobad|onek dhonnobad|ধন্যবাদ|অনেক ধন্যবাদ|shukriya|shukran)$/i.test(t)) {
+    return {
+      kind: 'thanks',
+      reply: script === 'Bengali'
+        ? 'তোমাকেও অনেক ধন্যবাদ! কোনো প্রয়োজনে নির্দ্বিধায় জানিও 😊'
+        : script === 'English'
+        ? 'You are most welcome! Let me know if you need anything else 😊'
+        : 'Tomakeo onek dhonnobad! Kono proyojone nirdidhay janio 😊'
+    };
+  }
+
+  if (/^(good morning|shuvo shokal|suprovat|শুভ সকাল|সুপ্রভাত)$/i.test(t)) {
+    return {
+      kind: 'morning',
+      reply: script === 'Bengali'
+        ? 'শুভ সকাল! তোমার আজকের দিনটি অনেক সুন্দর কাটুক ☀️'
+        : script === 'English'
+        ? 'Good morning! Wishing you a wonderful and productive day ahead ☀️'
+        : 'Shuvo shokal! Tomar ajker din-ti onek shundor katuk ☀️'
+    };
+  }
+
+  if (/^(good night|shuvo ratri|shuvo rat|শুভ রাত্রি|শুভ রাত|gn)$/i.test(t)) {
+    return {
+      kind: 'night',
+      reply: script === 'Bengali'
+        ? 'শুভ রাত্রি! ভালো থেকো এবং সুন্দর ও আরামদায়ক ঘুম হোক 🌙'
+        : script === 'English'
+        ? 'Good night! Have a peaceful and restful sleep 🌙'
+        : 'Shuvo ratri! Valo theko ebong shundor ghum hok 🌙'
+    };
+  }
+
+  if (/^(bye|goodbye|tata|ta ta|see you|tc|take care|বিদায়|বিদায়)$/i.test(t)) {
+    return {
+      kind: 'bye',
+      reply: script === 'Bengali'
+        ? 'বিদায়! ভালো থেকো এবং নিজের যত্ন নিও 🙂'
+        : script === 'English'
+        ? 'Goodbye! Take good care of yourself and talk soon 🙂'
+        : 'Biday! Valo theko ar nijer jotno nio 🙂'
+    };
+  }
+
+  return null;
+}
+
 function buildAssistantActivityReply(script, message = '') {
   const text = String(message || '');
   const t = text.toLowerCase();
@@ -124,4 +238,19 @@ function isProactiveScheduleValid(schedule, conversation, profile, now = Date.no
   if (Number(conversation && conversation.lastUserAt || 0) !== Number(schedule.inboundAt)) return false;
   return now >= Number(schedule.scheduledAt) && now < Number(schedule.expiresAt);
 }
-module.exports = { classifyGreeting, buildGreetingReply, classifyActivityQuestion, buildAssistantActivityReply, classifyRelayIntent, buildRelayAcknowledgement, canSendWifeProactive, makeProactiveSchedule, isProactiveScheduleValid, isTaskReminderDue, __test: { parseDueDate, parseClockTime, localDhakaToUtc } };
+module.exports = {
+  classifyGreeting,
+  buildGreetingReply,
+  isEmojiOnly,
+  buildEmojiReply,
+  classifyChitChat,
+  classifyActivityQuestion,
+  buildAssistantActivityReply,
+  classifyRelayIntent,
+  buildRelayAcknowledgement,
+  canSendWifeProactive,
+  makeProactiveSchedule,
+  isProactiveScheduleValid,
+  isTaskReminderDue,
+  __test: { parseDueDate, parseClockTime, localDhakaToUtc }
+};
