@@ -828,7 +828,7 @@ async function bootstrap() {
         ];
         for (const patch of runtimePatches) {
           const marker = patch.startsWith('IMPORTANT MIRROR') ? 'IMPORTANT MIRROR PATCH:' : 'IMPORTANT SINGLE-REPLY PATCH:';
-          if (!String(state.config.systemPrompt || '').includes(marker)) state.config.systemPrompt = String(state.config.systemPrompt || '') + '\\n\\n' + patch;
+          if (!String(state.config.systemPrompt || '').includes(marker)) state.config.systemPrompt = String(state.config.systemPrompt || '') + '\n\n' + patch;
         }
         console.log('[persistence] Encrypted owner state restored from PostgreSQL');
       } else {
