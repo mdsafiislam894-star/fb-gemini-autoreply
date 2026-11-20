@@ -154,15 +154,13 @@ Do not use a temporary database for important personal reminders. Render's Free 
 - Meta messaging-window and permission requirements remain authoritative. No feature bypasses them.
 
 
-## ZEVIAN v5.1 — Natural multi-message conversations
+## ZEVIAN v5.1.2 — Natural single-reply conversations
 
-- ZEVIAN can send 1–3 separate Messenger bubbles for one inbound message. Each part is sent as an independent Messenger message, with a short pause between bubbles.
-- Example: when someone asks `ki koris?`, a contextually appropriate response may be:
-  1. `Aito bose aci 🙂`
-  2. `Tui ki koris?`
-- This is an example, not a forced template. The assistant should choose a relevant follow-up question only when it adds conversational value.
-- The model can choose `NO_REPLY` for simple acknowledgements, reactions, repetitive content, or low-value messages. It should not reply to every incoming message.
-- It can ask one concise clarification question when the message is genuinely unclear.
-- Multi-bubble conversational replies apply to all contacts and mirror their language, script, pronouns, spelling, and tone.
-- Delayed proactive Messenger messages remain restricted to the explicitly tagged `/tag PSID wife` contact. A contextual second bubble in the current reply is not a delayed proactive message.
-- At most three bubbles are sent for a single inbound event. If a bubble fails, the sequence stops; duplicate webhook message IDs are ignored.
+- Every incoming Messenger message receives at most one outgoing reply. The model's output is normalized to one message and the send layer independently enforces the same limit.
+- Common greetings such as `Oiii`, `হ্যালো`, and `Hello` receive one short, natural greeting in the matching script.
+- Casual assistant-directed messages such as `Ki koris?` and `Koi achis?` are answered as ZEVIAN, not mistaken for questions about the Owner.
+- Questions explicitly about Safi / Owner / Sir remain on the separate Owner privacy and approval/offline path.
+- Other messages are handled by Gemini with Bengali, Banglish, English, and mixed-language mirroring, contextual concise replies, and clarification when needed.
+- Low-value reactions or repeated content may receive no reply where silence is more natural.
+- Delayed proactive Messenger messages remain restricted to explicitly tagged wife/partner contacts and stay subject to the existing cooldown and Meta messaging-window restrictions.
+- These changes do not bypass Meta permissions, messaging windows, or app review requirements.
