@@ -10,10 +10,10 @@ const DHAKA_OFFSET_MINUTES = 360;
 function classifyActivityQuestion(message) {
   const text = String(message || '').trim();
   const t = text.toLowerCase();
-  const hasBangla = /[\\u0980-\\u09ff]/.test(text);
-  const hasBanglishCue = /\\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor|koi|kothay|achis|achos|acho|aso)\\b/i.test(t);
-  const hasOwner = /\\b(safi|owner|sir)\\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
-  const activity = /\\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|kemon|how are you|koi|kothay|achis|achos|acho|aso|where are you)\\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে|কোথায় আছ|কোথায় আছ|কই আছ)/u.test(text);
+  const hasBangla = /[\u0980-\u09ff]/.test(text);
+  const hasBanglishCue = /\b(ki|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|khobor|koi|kothay|achis|achos|acho|aso)\b/i.test(t);
+  const hasOwner = /\b(safi|owner|sir)\b/i.test(t) || /(সাফি|ওনার|মালিক|স্যার)/u.test(text);
+  const activity = /\b(ki|what|doing|koro|koros|koris|korcho|korteso|kortese|kortesen|obostha|kemon|how are you|koi|kothay|achis|achos|acho|aso|where are you)\b/i.test(t) || /(কি কর|কী কর|করছেন|করছে|কোথায় আছ|কোথায় আছ|কই আছ)/u.test(text);
   const script = hasBangla ? 'Bengali' : (hasBanglishCue ? 'Banglish' : 'English');
   if (hasOwner && activity) return { kind: 'owner_activity', script };
   if (!hasOwner && activity) return { kind: 'assistant_activity', script };
@@ -37,7 +37,7 @@ function buildGreetingReply(script) {
 
 function buildAssistantActivityReply(script, message = '') {
   const t = String(message || '').toLowerCase();
-  const asksLocation = /\\b(koi|kothay|where are you)\\b/i.test(t) || /(কোথায় আছ|কোথায় আছ|কই আছ)/u.test(t);
+  const asksLocation = /\b(koi|kothay|where are you)\b/i.test(t) || /(কোথায় আছ|কোথায় আছ|কই আছ)/u.test(t);
   if (script === 'Banglish') return asksLocation ? 'Ei to, ekhanei achi 🙂' : 'Ei to, tomar sathe kotha bolchi 🙂';
   if (script === 'Bengali') return asksLocation ? 'এইতো, এখানেই আছি 🙂' : 'এইতো, তোমার সঙ্গে কথা বলছি 🙂';
   return asksLocation ? 'I’m right here 🙂' : 'I’m here chatting with you 🙂';
