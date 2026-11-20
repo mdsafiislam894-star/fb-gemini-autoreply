@@ -13,6 +13,15 @@ app.use(cors());
 app.use(express.json({ limit: '3mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const TELEGRAM_WEBHOOK_BASE = (process.env.TELEGRAM_WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\\/$/, '');
+const TELEGRAM_WEBHOOK_SECRET = BOT_TOKEN ? crypto.createHmac('sha256', BOT_TOKEN).update('ZEVIAN_TELEGRAM_WEBHOOK_V1').digest('hex') : '';
+app.post('/telegram/webhook', async (req, res) => {
+  if (!TELEGRAM_WEBHOOK_SECRET || req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) return res.sendStatus(403);
+  if (!tgBot || !req.body || typeof req.body !== 'object') return res.sendStatus(503);
+  try { await tgBot.processUpdate(req.body); return res.sendStatus(200); }
+  catch (error) { console.error('[telegram] Webhook update failed:', error.message); return res.sendStatus(500); }
+});
+
 const GRAPH_VERSION = 'v21.0';
 const ADMIN_CHAT_ID = (process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim();
 const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -824,13 +833,22 @@ async function bootstrap() {
   } catch (error) {
     console.error('[persistence] Initialization failed; running in memory-only mode:', error.message);
   }
-  if (tgBot) {
-    try { await tgBot.startPolling(); }
-    catch (error) { console.error('[telegram] Polling start failed:', error.message); }
-  }
   setInterval(() => { persistence.save(state); }, 1500).unref();
   setInterval(() => { runScheduledJobs().catch(error => console.error('[scheduler] Job cycle failed:', error.message)); }, 15000).unref();
-  app.listen(PORT, () => console.log('ZEVIAN v5.1 Smart Offline Assistant running on port', PORT));
+  app.listen(PORT, async () => {
+    console.log('ZEVIAN v5.1.2 Single Reply Assistant running on port', PORT);
+    if (!tgBot) return;
+    if (TELEGRAM_WEBHOOK_BASE) {
+      const webhookUrl = TELEGRAM_WEBHOOK_BASE + '/telegram/webhook';
+      try {
+        await tgBot.setWebHook(webhookUrl, { secret_token: TELEGRAM_WEBHOOK_SECRET, drop_pending_updates: false });
+        console.log('[telegram] Webhook mode enabled; long polling disabled');
+      } catch (error) { console.error('[telegram] Webhook setup failed:', error.message); }
+    } else {
+      try { await tgBot.startPolling(); console.log('[telegram] Local polling mode enabled'); }
+      catch (error) { console.error('[telegram] Polling start failed:', error.message); }
+    }
+  });
 }
 process.on('SIGTERM', async () => {
   try { await persistence.save(state); await persistence.close(); } finally { process.exit(0); }
