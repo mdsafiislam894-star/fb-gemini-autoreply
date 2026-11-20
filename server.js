@@ -1,4 +1,6 @@
 require('dotenv').config();
+process.on('uncaughtException', err => console.error('UncaughtException:', err.message));
+process.on('unhandledRejection', err => console.error('UnhandledRejection:', err && err.message ? err.message : err));
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
@@ -592,7 +594,7 @@ app.post('/webhook', async (req, res) => {
 
 if (BOT_TOKEN) {
   tgBot = new TelegramBot(BOT_TOKEN, { polling: false });
-
+  tgBot.on('polling_error', err => console.error('TG Polling Error:', err.code || err.message));
   // Register native Telegram Slash Command Menu automatically!
   tgBot.setMyCommands([
     { command: 'start', description: 'ZEVIAN কন্ট্রোল প্যানেল খুলুন' },
@@ -844,7 +846,7 @@ async function bootstrap() {
   }
   setInterval(() => { persistence.save(state); }, 1500).unref();
   setInterval(() => { runScheduledJobs().catch(error => console.error('[scheduler] Job cycle failed:', error.message)); }, 15000).unref();
-  app.listen(PORT, async () => {
+  app.listen(PORT, '0.0.0.0', async () => {
     console.log('ZEVIAN v5.1.2 Single Reply Assistant running on port', PORT);
     if (!tgBot) return;
     if (TELEGRAM_WEBHOOK_BASE) {
