@@ -27,7 +27,7 @@ const state = {
     commentReplyEnabled: true,
     commentInboxEnabled: true,
     confidenceThreshold: 0.70,
-    systemPrompt: 'You are ZEVIAN, an advanced, warm, human-like AI personal Messenger assistant. ALWAYS mirror the user\'s language and script (Banglish -> Banglish, Bengali -> Bengali, English -> English, Mixed -> Mixed) and pronoun (তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni). ALWAYS break natural replies into 2 short separate chat bubbles in "reply_bubbles" array (like real human texting: e.g. ["Aito Bose Aci 🙂", "Tui ki Koris?"] or ["Aito Alhamdulillah 😊", "Tumi kemon acho?"]). Use at most 1 tasteful emoji per bubble. Understand typos and Banglish short forms.'
+   systemPrompt: 'You are Safi (also known as Sifu), replying directly in first-person as a warm, friendly human on Messenger. NEVER say you are a bot or AI. ALWAYS mirror the user\'s language and script (Banglish -> Banglish, Bengali -> Bengali, English -> English, Mixed -> Mixed) and pronoun (তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni). ALWAYS break natural replies into 2 short separate chat bubbles in "reply_bubbles" array (e.g. ["Aito Bose Aci 😊", "Tui ki Koris?"] or ["Aito Alhamdulillah 😄", "Tumi kemon acho?"]). Use varied, context-aware, expressive emojis matching the tone of each message (such as 😊, 😄, 🥰, ❤️, 😂, 🥺, ✨, 👍), at most 1 tasteful emoji per bubble. Also return a matching "reaction" field ("love" | "smile" | "wow" | "sad" | "") to react to the user\'s message appropriately. Understand typos and Banglish short forms.'
   },
   ownerStatuses: [],
   tasks: [],
@@ -204,13 +204,7 @@ Always split into 2-3 natural affectionate bubbles, ask caring follow-ups, call 
 
   const modeGuide = state.config.ownerOnline
     ? `OWNER STATUS: ONLINE. If a normal user asks a personal question (location, college, eating, plans) and no Approved Active Status answers it, set classification="PERSONAL", requires_owner=true, reply_bubbles=[], and provide 3-4 short options in owner_suggestions.`
-    : `OWNER STATUS: OFFLINE (AUTONOMOUS MODE!). DO NOT escalate to owner (set requires_owner=false)! Reply directly, warmly, and gracefully in 2 short bubbles!
-Offline Examples for normal users:
-- "কি করিস?" -> ["এইতো কাজ করছি সাফি স্যারের সাথে 🙂", "তুমি কী করছো?"]
-- "কই আছিস?" -> ["সাফি স্যার এখন অনলাইনে নেই, কোথাও গেছেন বা কাজে ব্যস্ত আছেন 🙂", "কোনো দরকার থাকলে আমাকে বলো, আমি নোট করে রাখছি!"]
-- "khaicis?" -> ["Safi sir ekhon online e nai, unar theke shune bolte hobe 🙂", "Tui khaichis?"]
-- "কলেজে যাবে?" -> ["কোনো দরকার আছে নাকি? 🙂", "সাফি স্যার অনলাইনে এলেই জিজ্ঞেস করে জানিয়ে দেব!"]
-- If user shares important info/task/reminder (like "Kalke Sir College a Jaite Bolche" or "Safi online asle phone dite bolbe"), reply warmly confirming you saved it as a reminder for Safi, AND set "save_as_task": true with a crisp Bengali/English "task_summary"!`;
+ : `OWNER STATUS: OFFLINE (FIRST-PERSON SAFI MODE!). You ARE Safi (Sifu) yourself! NEVER say "আমি বট", "I am an AI", "Safi sir", or "সাফি স্যার"—always reply in first-person as Safi himself in 2 short, warm, natural bubbles with requires_owner=false! Examples: "কি করো?" -> ["এইতো বসে আছি আলহামদুলিল্লাহ 😊", "তুমি কি করো?"], "khaicis?" -> ["হ্যাঁ আলহামদুলিল্লাহ খেয়েছি 😊", "তুমি খেয়েছো?"], "kemon acho?" -> ["আলহামদুলিল্লাহ ভালো আছি 😄", "তোমার কী অবস্থা?"]. If the user shares important info, task, or reminder (e.g. "Kalke College a jaite bolche" or "pore phone dio"), reply warmly as Safi saying you'll remember/do it and set "save_as_task": true with a crisp "task_summary"!`;
 
   const prompt = `${state.config.systemPrompt}
 Owner Name: ${state.config.ownerDisplayName} | Contact Tag: ${tag}
@@ -226,7 +220,7 @@ ${history || '(New)'}
 Latest User Message: "${userText}"
 
 Return ONLY valid JSON:
-{"classification":"GENERAL","confidence":0.95,"requires_owner":false,"save_as_task":false,"task_summary":"","reason":"...","reply_bubbles":["bubble 1","bubble 2"],"owner_suggestions":["opt 1","opt 2","opt 3"]}`;
+{"classification":"GENERAL","confidence":0.95,"requires_owner":false,"save_as_task":false,"task_summary":"","reason":"...","reaction":"smile","reply_bubbles":["bubble 1","bubble 2"],"owner_suggestions":["opt 1","opt 2","opt 3"]}`;
 
   return callGeminiJSON(prompt, 0.72);
 }
@@ -329,6 +323,7 @@ app.post('/webhook', async (req, res) => {
         await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'typing_on' });
 
         const ai = await analyzeMessage(psid, text);
+        if (ai && ai.reaction && mid) { await callGraph('me/messages', { recipient: { id: psid }, sender_action: 'react', payload: { message_id: mid, reaction: ai.reaction } }); }
         const low = text.toLowerCase();
 
         // Auto-save Task / Reminder if detected by AI or keyword cue
@@ -567,6 +562,8 @@ if (BOT_TOKEN) {
   });
 }
 
+app.get('/privacy', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Privacy Policy</h2><p>This Messenger assistant processes messages solely to provide automated replies and task reminders for the page owner. No data is sold or shared with third parties.</p></body></html>'));
+app.get('/terms', (req, res) => res.send('<html><body style="font-family:sans-serif;padding:30px"><h2>Terms of Service</h2><p>By messaging this page, you agree to receive automated and owner-assisted responses.</p></body></html>'));
 app.get('/health', (req, res) => res.json({ ok: true, version: '5.0.0', ownerOnline: state.config.ownerOnline, masterActive: state.config.masterActive, geminiOk: !lastGeminiError, openTasks: state.tasks.filter(t => !t.done).length, taggedContacts: Object.keys(state.contactTags).length, uptime: Math.floor(process.uptime()) }));
 app.get('/', (req, res) => res.send(`<html><body style="font-family:sans-serif;background:#070b14;color:#f1f5f9;padding:30px"><h2>🤖 ZEVIAN v5.0 Pro Assistant</h2><p>Presence: <b>${state.config.ownerOnline ? 'ONLINE' : 'OFFLINE'}</b> | Master: <b>${state.config.masterActive ? 'ACTIVE' : 'PAUSED'}</b> | Open Reminders: <b>${state.tasks.filter(t => !t.done).length}</b></p><p><a style="color:#818cf8" href="/health">/health</a></p></body></html>`));
 
