@@ -94,7 +94,7 @@ test('due reminder respects snooze, sent state, and retry backoff', () => {
 });
 
 test('distinguishes a question to ZEVIAN from a personal question about the owner', () => {
-  const { classifyActivityQuestion } = require('../assistant-engine');
+  const { classifyActivityQuestion, classifyGreeting } = require('../assistant-engine');
   assert.deepEqual(classifyActivityQuestion('Ki koro?'), { kind: 'assistant_activity', script: 'Banglish' });
   assert.deepEqual(classifyActivityQuestion('Ki koris'), { kind: 'assistant_activity', script: 'Banglish' });
   assert.deepEqual(classifyActivityQuestion('What are you doing?'), { kind: 'assistant_activity', script: 'English' });
@@ -104,6 +104,9 @@ test('distinguishes a question to ZEVIAN from a personal question about the owne
   assert.deepEqual(classifyActivityQuestion('Safi ki kortese?'), { kind: 'owner_activity', script: 'Banglish' });
   assert.deepEqual(classifyActivityQuestion('সাফি স্যার এখন কী করছেন?'), { kind: 'owner_activity', script: 'Bengali' });
   assert.deepEqual(classifyActivityQuestion('Hi'), { kind: 'other', script: 'English' });
+  assert.deepEqual(classifyGreeting('Oiii'), { kind: 'greeting', script: 'Banglish' });
+  assert.deepEqual(classifyGreeting('হ্যালো'), { kind: 'greeting', script: 'Bengali' });
+  assert.deepEqual(classifyGreeting('Hello!'), { kind: 'greeting', script: 'English' });
 });
 
 test('builds a natural activity reply in the incoming script', () => {
@@ -112,4 +115,11 @@ test('builds a natural activity reply in the incoming script', () => {
   assert.match(buildAssistantActivityReply('Banglish', 'Koi achis?'), /ekhanei achi/i);
   assert.match(buildAssistantActivityReply('English'), /chatting with you/i);
   assert.match(buildAssistantActivityReply('Bengali'), /তোমার সঙ্গে কথা বলছি/);
+});
+
+test('builds natural greeting replies in the matching script', () => {
+  const { buildGreetingReply } = require('../assistant-engine');
+  assert.match(buildGreetingReply('Banglish'), /Oiii!/);
+  assert.match(buildGreetingReply('Bengali'), /হ্যালো/);
+  assert.match(buildGreetingReply('English'), /Hey!/);
 });
