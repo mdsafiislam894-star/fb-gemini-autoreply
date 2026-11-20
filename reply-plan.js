@@ -1,6 +1,6 @@
 'use strict';
 
-const MAX_REPLY_PARTS = 3;
+const MAX_REPLY_PARTS = 1;
 const MAX_PART_LENGTH = 700;
 
 function normalizeReplyPlan(payload) {
