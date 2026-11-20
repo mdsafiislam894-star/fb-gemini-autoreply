@@ -822,8 +822,14 @@ async function bootstrap() {
         for (const key of Object.keys(state)) {
           if (Object.prototype.hasOwnProperty.call(saved, key)) state[key] = saved[key];
         }
-        const mirrorPatch = 'IMPORTANT MIRROR PATCH: Questions like "Ki koro?", "Ki koris?", "Ki obostha?", and "What are you doing?" address ZEVIAN itself; answer naturally as the assistant in the sender script. Only route a question to the Owner when the sender explicitly asks about Safi / Owner / Sir or another clearly personal fact.';
-        if (!String(state.config.systemPrompt || '').includes('IMPORTANT MIRROR PATCH:')) state.config.systemPrompt = String(state.config.systemPrompt || '') + '\n\n' + mirrorPatch;
+        const runtimePatches = [
+          'IMPORTANT MIRROR PATCH: Questions like "Ki koro?", "Ki koris?", "Ki obostha?", and "What are you doing?" address ZEVIAN itself; answer naturally as the assistant in the sender script. Only route a question to the Owner when the sender explicitly asks about Safi / Owner / Sir or another clearly personal fact.',
+          'IMPORTANT SINGLE-REPLY PATCH: For every inbound Messenger event, send at most one outgoing Messenger message. Never create or send multiple bubbles for one inbound event. When asked who you are, identify transparently as ZEVIAN, the Page assistant; never impersonate Safi or claim to be the human Owner.'
+        ];
+        for (const patch of runtimePatches) {
+          const marker = patch.startsWith('IMPORTANT MIRROR') ? 'IMPORTANT MIRROR PATCH:' : 'IMPORTANT SINGLE-REPLY PATCH:';
+          if (!String(state.config.systemPrompt || '').includes(marker)) state.config.systemPrompt = String(state.config.systemPrompt || '') + '\\n\\n' + patch;
+        }
         console.log('[persistence] Encrypted owner state restored from PostgreSQL');
       } else {
         console.log('[persistence] New encrypted state store initialized');
