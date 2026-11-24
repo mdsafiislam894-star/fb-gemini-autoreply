@@ -28,7 +28,7 @@ const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const TELEGRAM_WEBHOOK_BASE = (process.env.TELEGRAM_WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\/$/, '');
 const TELEGRAM_WEBHOOK_SECRET = BOT_TOKEN ? crypto.createHmac('sha256', BOT_TOKEN).update('ZEVIAN_TELEGRAM_WEBHOOK_V1').digest('hex') : '';
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
-const PAGE_TOKEN = (process.env.FB_PAGE_ACCESS_TOKEN || '').trim();
+let PAGE_TOKEN = (process.env.FB_PAGE_ACCESS_TOKEN || '').trim(); const APP_ID = (process.env.FB_APP_ID || '').trim();
 const APP_SECRET = (process.env.FB_APP_SECRET || '').trim();
 
 const state = {
@@ -41,7 +41,7 @@ const state = {
     commentInboxEnabled: true,
     mirrorMode: true,
     confidenceThreshold: 0.72,
-    systemPrompt: `You are ZEVIAN, an intelligent, natural, friend-like AI personal Messenger assistant. Core Rule — Auto Language, Script & Style Mirroring (Default: Banglish Mirror Mode): (1) Bengali script input -> Bengali script reply. (2) Banglish/Romanized Bengali input (e.g. ki koris, khaicis, valo?) -> Banglish/Romanized Bengali reply matching their exact spelling style. (3) English input -> English reply. (4) Mixed input -> natural Mixed reply. (5) Pronoun Mirroring: তুই/tui -> তুই/tui, তুমি/tumi -> তুমি/tumi, আপনি/apni -> আপনি/apni (neutral polite if unclear). (6) Adaptive Typing Length: short message -> short 1-line reply; detailed question -> clear helpful reply. (7) Typo Tolerance & Smart Clarification: understand typos/short forms (w8, khaiso, jaiba, koros); if truly unclear, ask ONE short polite clarification question in their script — NEVER guess. (8) Reply Diversity: never repeat recent replies verbatim. (9) Emoji Rule: EVERY user-facing reply MUST contain at least one context-appropriate emoji, including serious/formal replies; choose a subtle respectful emoji when needed. Never send a reply with zero emoji. (10) NEVER invent the owner\'s personal location, plans, eating status, or decisions. (11) When Owner is offline, never claim to know location, activity or eating status; say Owner is offline and ask what message to pass on. (12) For contacts explicitly tagged with /tag PSID wife only, use recent conversation context and mirror their script, spelling, pronouns, short-message rhythm, and natural affectionate style. Avoid repetitive elongated filler, repeated messages, and overuse of pet names. Never impersonate the Owner or invent the Owner's private facts. (13) Only this wife-tagged contact may receive a delayed proactive follow-up; generate one only when it adds natural value, otherwise leave follow_up empty.`
+    systemPrompt: `You are the human page owner of ZEVIAN replying directly on Messenger. NEVER say, admit, or imply that you are an AI, bot, or automated assistant. Core Rules: (1) Mirror the user's exact language/script (Bangla, Banglish, or English) and addressing pronoun style (tui/tumi/apni or তুই/তুমি/আপনি) naturally. (2) At the start of a new chat (first message), greet with Salam ('আসসালামু আলাইকুম' in Bangla or 'Assalamu Alaikum' in Banglish/English; if the user already gave Salam, reply with 'ওয়ালাইকুমুস সালাম' / 'Walaikumus Salam'). (3) When ending a conversation or saying goodbye, close warmly with 'ফি আমানিল্লাহ' or 'আল্লাহ হাফেজ' (matching the user's script). (4) Understand the user's tone and emotion deeply and reply warmly, concisely, and naturally—give ONLY a short, relevant answer to what was asked without extra fluff or unsolicited info. (5) Use 1-2 fitting emojis in every message matching the emotion of that message.`
   },
   ownerStatuses: [],
   ownerPresence: 'offline',
@@ -576,7 +576,7 @@ Instructions:
    - Answer the user's questions clearly, intelligently, politely, and concisely.
    - For general knowledge, advice, questions about products/services, tech, or polite queries, always give a direct, friendly answer as ZEVIAN!
    - Only set requires_owner=true when the message asks about Safi/Owner's private personal schedule, private location, or private actions that only the owner knows.
-4. Every suggested_reply and every owner_suggestions item must include at least one suitable emoji and must use the sender's language/script.
+4. HUMAN PAGE OWNER PERSONA: Act directly as the human page owner—NEVER say you are an AI or bot. Match the user's pronoun style (tui/tumi/apni or তুই/তুমি/আপনি) and language/script. If this is the first message of a new chat (History is empty), greet with Salam ('আসসালামু আলাইকুম' or 'Assalamu Alaikum'; or 'ওয়ালাইকুমুস সালাম' / 'Walaikumus Salam' if they greeted with Salam first). When ending the conversation or saying goodbye, close with 'ফি আমানিল্লাহ' or 'আল্লাহ হাফেজ'. Sense the user's emotion/tone, reply concisely with NO extra fluff or unsolicited info, and use 1-2 fitting emojis matching the message's emotion in every suggested_reply and owner_suggestions item.
 Single-reply conversation rules: Return exactly ONE concise Messenger reply in reply_parts (one array item only), not multiple bubbles. Never return an empty reply for a valid question. The single reply must match sender script, pronoun, spelling, tone, and include a suitable emoji.
 Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_owner":false,"reason":"...","reply_policy":"SEND","reply_parts":["..."],"suggested_reply":"...","owner_suggestions":["...","...","..."],"follow_up":""}. Set follow_up only for explicitly tagged wife/partner contacts and only when a natural delayed second message would add value; otherwise empty string.`;
 
@@ -598,7 +598,8 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
       }
       const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
       if (raw) {
-        const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+        let parsed = null; const cleanRaw = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim(); try { parsed = JSON.parse(cleanRaw); } catch { const jm = cleanRaw.match(/\{[\s\S]*\}/); if (jm) { try { parsed = JSON.parse(jm[0]); } catch {} } } if (!parsed || typeof parsed !== 'object') { const rm = cleanRaw.match(/"suggested_reply"\s*:\s*"((?:[^"\]|\.)*)"/) || cleanRaw.match(/"reply_parts"\s*:\s*\[\s*"((?:[^"\]|\.)*)"/); const txt = rm ? rm[1].replace(/\n/g, '
+').replace(/\"/g, '"') : cleanRaw.replace(/[{}\[\]"]/g, '').trim(); if (txt) parsed = { classification: 'GENERAL', confidence: 0.8, requires_owner: false, reason: 'Fallback text extraction', reply_policy: 'SEND', reply_parts: [txt], suggested_reply: txt, owner_suggestions: [txt], memory_update: null }; } if (parsed && (!Array.isArray(parsed.reply_parts) || !parsed.reply_parts.length) && parsed.suggested_reply) parsed.reply_parts = [parsed.suggested_reply];
         const allowed = ['GENERAL', 'PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT', 'SPAM', 'FOLLOW_UP'];
         const classification = String(parsed.classification || 'GENERAL').toUpperCase();
         const safeClass = allowed.includes(classification) ? classification : 'GENERAL';
@@ -719,7 +720,7 @@ app.post('/webhook', async (req, res) => {
         if (!ev.message?.text && ev.message?.attachments?.length) {
           const att = ev.message.attachments[0];
           if (ev.message.sticker_id) {
-            await sendPageReply(psid, '😊', 'ZEVIAN');
+            await sendPageReply(psid, conv.prefs.script === 'English' ? 'Nice sticker! 😊' : conv.prefs.script === 'Banglish' ? 'Sundor sticker! 😊' : 'বাহ, সুন্দর স্টিকার! 😊', 'ZEVIAN'); } else if (att?.type === 'image') { await sendPageReply(psid, conv.prefs.script === 'English' ? 'Got your image, thanks! 😊' : conv.prefs.script === 'Banglish' ? 'Chobi-ta peyechi, dhonnobad! 😊' : 'ছবিটা পেয়েছি, ধন্যবাদ! 😊', 'ZEVIAN'); escalate(psid, name, '[IMAGE attachment received]', 'UNCERTAIN', 'User sent image media', ''); } else if (att?.type === 'audio') { await sendPageReply(psid, conv.prefs.script === 'English' ? 'Got your voice message, listening now 🎧😊' : conv.prefs.script === 'Banglish' ? 'Voice message-ta peyechi, shune janacchi 🎧😊' : 'ভয়েস মেসেজটা পেয়েছি, শুনে জানাচ্ছি 🎧😊', 'ZEVIAN'); escalate(psid, name, '[AUDIO attachment received]', 'UNCERTAIN', 'User sent audio media', '');
           } else {
             await sendPageReply(psid, conv.prefs.script === 'English' ? 'I received your attachment. I will review it and get back to you 🙂' : 'তোমার পাঠানো ফাইল/ছবি পেয়েছি। দেখে জানাচ্ছি 🙂', 'ZEVIAN');
             escalate(psid, name, `[${String(att.type || 'file').toUpperCase()} attachment received]`, 'UNCERTAIN', `User sent ${att.type || 'file'} media`, fallbackSuggestions(conv.prefs.script));
@@ -999,7 +1000,11 @@ if (BOT_TOKEN) {
     const reply = (r.reply_parts || []).join(' | ') || r.suggested_reply || (r.requires_owner ? 'OWNER_REVIEW' : 'NO_REPLY');
     tgBot.sendMessage(m.chat.id, `✅ Gemini API reachable\nModel: ${lastGeminiModel || 'unknown'}\nInput: ki obostha?\nClass: ${r.classification}\nPolicy: ${r.reply_policy}\nReply: ${reply}`);
   });
-  tgBot.onText(/\/testmeta/, async m => {
+  tgBot.onText(/^\/extendtoken(?:\s+([\s\S]+))?$/i, async (m, match) => { if (!isOwner(m.chat.id)) return; const shortToken = (match[1] || '').trim(); if (!shortToken) return tgBot.sendMessage(m.chat.id, 'Usage: /extendtoken <short_lived_user_token>'); if (!APP_ID || !APP_SECRET) return tgBot.sendMessage(m.chat.id, '❌ FB_APP_ID এবং FB_APP_SECRET সেট করা নেই! Render-এ যোগ করুন।'); await tgBot.sendMessage(m.chat.id, '⏳ Long-lived Zevian Page Token বের করা হচ্ছে...'); try { const exRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(APP_ID)}&client_secret=${encodeURIComponent(APP_SECRET)}&fb_exchange_token=${encodeURIComponent(shortToken)}`); const exData = await exRes.json(); if (!exRes.ok || !exData.access_token) return tgBot.sendMessage(m.chat.id, `❌ Long-Lived Token পাওয়া যায়নি: ${exData.error?.message || exRes.status}`); const accRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(exData.access_token)}`); const accData = await accRes.json(); if (!accRes.ok || !Array.isArray(accData.data)) return tgBot.sendMessage(m.chat.id, `❌ /me/accounts পাওয়া যায়নি: ${accData.error?.message || accRes.status}`); const zevianPage = accData.data.find(p => (p.name || '').toLowerCase().includes('zevian')) || (accData.data.length === 1 ? accData.data[0] : null); if (!zevianPage || !zevianPage.access_token) return tgBot.sendMessage(m.chat.id, `❌ Zevian পেজ পাওয়া যায়নি। পেজসমূহ: ${accData.data.map(p => p.name).join(', ') || 'none'}`); PAGE_TOKEN = zevianPage.access_token; await tgBot.sendMessage(m.chat.id, `✅ *${zevianPage.name}* পেজের Never-Expiring Page Access Token মেমোরিতে সেট হয়েছে!
+
+Render-এ \`FB_PAGE_ACCESS_TOKEN\` হিসেবে নিচের টোকেনটি বসান:
+
+\`${zevianPage.access_token}\``, { parse_mode: 'Markdown' }); } catch (err) { await tgBot.sendMessage(m.chat.id, `❌ Error: ${err.message}`); } }); tgBot.onText(/\/testmeta/, async m => {
     if (!isOwner(m.chat.id)) return;
     tgBot.sendMessage(m.chat.id, '🔍 Meta Graph API ডায়াগনস্টিক টেস্ট চলছে...');
     const diag = await diagnoseMetaApi();
