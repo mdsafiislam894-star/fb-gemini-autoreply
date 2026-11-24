@@ -438,7 +438,10 @@ async function callGraph(endpoint, payload, options = {}) {
           action: classified.action
         };
 
-        if (classified.retryable && attempt < maxAttempts) {
+        if ((classified.code === 190 || classified.category === 'TOKEN_INVALID') && tgBot && ADMIN_CHAT_ID && Date.now() - (global.__lastToken190AlertAt || 0) > 300000) { global.__lastToken190AlertAt = Date.now(); tgBot.sendMessage(ADMIN_CHAT_ID, `⚠️ Facebook Page Access Token expired/invalid (Error 190)!
+Endpoint: ${endpoint}
+Details: ${classified.message || 'Invalid OAuth access token'}
+Action: Generate a new Page Access Token in Meta for Developers and update PAGE_TOKEN.`).catch(() => {}); } if (classified.retryable && attempt < maxAttempts) {
           console.info(`[messenger] Retrying transient error (${correlationId}) in 600ms...`);
           await new Promise(r => setTimeout(r, 600));
           continue;
@@ -529,10 +532,10 @@ function pushMsg(psid, role, text) {
   const c = getConv(psid);
   if (role === 'User') { c.lastUserAt = Date.now(); detectStyle(text, c); }
   c.messages.push({ role, text, time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) });
-  if (c.messages.length > 22) {
+  if (c.messages.length > 40) {
     const older = c.messages.slice(0, 4).map(m => `${m.role}: ${m.text}`).join(' | ');
     c.summary = ((c.summary ? c.summary + ' ; ' : '') + older).slice(-400);
-    c.messages = c.messages.slice(-18);
+    c.messages = c.messages.slice(-30);
   }
 }
 
@@ -579,8 +582,8 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
 
   // Low-cost, high-speed chat routing
   const configuredModel = (process.env.GEMINI_MODEL || '').trim();
-  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
-  for (const m of models) {
+  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite'].filter(Boolean))];
+  const modelAttempts = [...models, ...models]; for (let attemptIdx = 0; attemptIdx < modelAttempts.length; attemptIdx++) { const m = modelAttempts[attemptIdx];
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY }, signal: AbortSignal.timeout(12000),
@@ -590,7 +593,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
       if (!res.ok) {
         lastGeminiError = `${m} HTTP ${res.status}: ${d.error ? d.error.message : 'Error'}`;
         if (res.status === 401 || res.status === 403) return null;
-        if ([400, 404, 429, 500, 502, 503, 504].includes(res.status)) continue;
+        if (res.status === 429 || res.status === 503) { const retrySec = Number(res.headers.get('retry-after')) || 0; const waitMs = Math.min(8000, Math.max(1500, retrySec * 1000 || (1500 * (Math.floor(attemptIdx / models.length) + 1)))); await new Promise(r => setTimeout(r, waitMs)); continue; } if ([400, 404, 500, 502, 504].includes(res.status)) continue;
         return null;
       }
       const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
@@ -599,7 +602,7 @@ Return ONLY valid JSON: {"classification":"GENERAL","confidence":0.95,"requires_
         const allowed = ['GENERAL', 'PERSONAL', 'UNCERTAIN', 'SENSITIVE', 'URGENT', 'COMPLAINT', 'SPAM', 'FOLLOW_UP'];
         const classification = String(parsed.classification || 'GENERAL').toUpperCase();
         const safeClass = allowed.includes(classification) ? classification : 'GENERAL';
-        const requiresOwner = Boolean(parsed.requires_owner) || safeClass === 'PERSONAL';
+        const requiresOwner = false;
         const suggestions = Array.isArray(parsed.owner_suggestions) ? parsed.owner_suggestions.slice(0, 4).map(v => withEmoji(v, '🙂')) : [];
         const replyPlan = replyPlanEngine.normalizeReplyPlan(parsed);
         const resolvedReply = (replyPlan.parts && replyPlan.parts[0]) || (String(parsed.suggested_reply || '').trim() ? withEmoji(parsed.suggested_reply, '🙂') : '');
@@ -761,13 +764,13 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
         // Owner presence decides whether personal questions are escalated or handled with a transparent offline response.
-        if ((isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
+        if (false && (isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text) && state.ownerPresence === 'offline') {
           const offlineReply = offlinePersonalReply(text, conv, ownerTask);
           await sendPageReply(psid, offlineReply, 'ZEVIAN');
           continue;
         }
         // When Owner is online, personal questions are routed to Owner approval.
-        if ((isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text)) {
+        if (false && (isPersonalQuestion(text) || activityIntent.kind === 'owner_activity') && !statusMayAnswerQuestion(text)) {
           const holdMsg = conv.prefs.script === 'Banglish (Romanized Bengali)'
             ? 'Ei proshnotar uttor amar Owner dite parben. Ektu opekkha koro 🙂'
             : conv.prefs.script === 'English'
@@ -778,15 +781,15 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
 
-        const ai = await analyzeMessage(psid, text);
+        const dbMap = global.__msgDebounce || (global.__msgDebounce = new Map()); const prevDb = dbMap.get(psid); if (prevDb) clearTimeout(prevDb.timer); const dbTexts = prevDb ? [...prevDb.texts, text] : [text]; const dbTimer = setTimeout(async () => { try { dbMap.delete(psid); const debouncedText = dbTexts.join(String.fromCharCode(10)); const ai = await analyzeMessage(psid, debouncedText);
         if (!ai) {
           const ownerNotified = Boolean(tgBot && ADMIN_CHAT_ID);
           await sendPageReply(psid, fallbackUserReply(conv.prefs.script, ownerNotified), 'ZEVIAN');
           escalate(psid, name, text, 'UNCERTAIN', `Gemini unavailable: ${lastGeminiError || 'all model attempts failed'}`, fallbackSuggestions(conv.prefs.script));
-          continue;
+          return;
         }
         const cls = (ai.classification || 'GENERAL').toUpperCase();
-        if (cls === 'SPAM') continue;
+        if (cls === 'SPAM') return;
 
         // Key logic: if Gemini has a reply and doesn't require owner, send it directly
         const hasReply = Array.isArray(ai.reply_parts) && ai.reply_parts.length > 0 && ai.reply_parts[0];
@@ -809,7 +812,7 @@ app.post('/webhook', async (req, res) => {
           // No reply generated and no owner needed; fallback safe reply
           await sendPageReply(psid, fallbackUserReply(conv.prefs.script, Boolean(tgBot && ADMIN_CHAT_ID)), 'ZEVIAN');
           escalate(psid, name, text, cls, ai.reason || 'No AI reply generated', ai.owner_suggestions || fallbackSuggestions(conv.prefs.script));
-        }
+        } } catch (e) { console.error('Debounce error:', e); } }, 4500); dbMap.set(psid, { texts: dbTexts, timer: dbTimer });
       }
     }
     if (entry.changes) {
